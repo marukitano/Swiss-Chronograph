@@ -1,7 +1,6 @@
 // Copyright (c) 2026 Andrew Howe. All rights reserved. See LICENSE (GPLv3.0).
 // TAP_TIMER_RULER_TOUCH_V1
 // TAP_TIMER_BIDIRECTIONAL_CANVAS_V2
-// TAP_TIMER_NUMBER_AT_TOP_V1
 // Vertical minute-ruler interaction by Maru Kitano, 2026.
 
 #include "touch.h"
@@ -265,7 +264,7 @@ static void draw_ruler(Layer *layer, GContext *ctx) {
         ctx,
         label,
         fonts_get_system_font(FONT_KEY_GOTHIC_28_BOLD),
-        GRect(0, 0, bounds.size.w, 40),
+        GRect(0, center_y - 20, bounds.size.w, 40),
         GTextOverflowModeTrailingEllipsis,
         GTextAlignmentCenter,
         NULL
