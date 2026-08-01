@@ -154,7 +154,7 @@ static void draw_ruler(Layer *layer, GContext *ctx) {
         ctx,
         label,
         fonts_get_system_font(FONT_KEY_GOTHIC_28_BOLD),
-        GRect(0, center_y - 20, bounds.size.w, 40),
+        GRect(0, (bounds.size.h - 40) / 2, bounds.size.w, 40),
         GTextOverflowModeTrailingEllipsis,
         GTextAlignmentCenter,
         NULL
@@ -162,7 +162,7 @@ static void draw_ruler(Layer *layer, GContext *ctx) {
 
     const int16_t arrow_center_x = bounds.size.w / 2;
     const int16_t arrow_half_width = bounds.size.w / 6;  // ~33% total width
-    const int16_t arrow_top = center_y + 28;
+    const int16_t arrow_top = (bounds.size.h / 2) + 18;
 
 #if PBL_COLOR
     const GColor arrow_dim = GColorDarkGray;
