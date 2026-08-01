@@ -128,7 +128,7 @@ static void draw_ruler(Layer *layer, GContext *ctx) {
         ctx,
         label,
         fonts_get_system_font(FONT_KEY_GOTHIC_28_BOLD),
-        GRect(0, center_y - 20, bounds.size.w, 40),
+        GRect(8, center_y - 20, ruler_left - 18, 40),
         GTextOverflowModeTrailingEllipsis,
         GTextAlignmentCenter,
         NULL

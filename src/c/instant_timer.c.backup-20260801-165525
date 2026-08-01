@@ -538,17 +538,38 @@ static SecDisplay seconds_duration_display_style(void) {
 
 /// Note: Max icon size is 28x18, recommended 15x15
 static void update_action_bar(void) {
-    action_bar_layer_set_icon(s_action_bar, BUTTON_ID_UP, NULL);
-    action_bar_layer_set_icon(s_action_bar, BUTTON_ID_DOWN, NULL);
-
-    const GBitmap *select_icon = NULL;
+    TRACE("update_action_bar");
+    const GBitmap* icon_toggle = s_state.is_counting ? s_icon_pause : s_icon_start;
     if (alarm_is_pulsing()) {
-        select_icon = s_icon_tick;
-    } else if (!s_state.is_counting && (s_state.alarm_duration > 0)) {
-        select_icon = s_icon_start;
+        action_bar_layer_set_icon_animated(s_action_bar, BUTTON_ID_UP, s_icon_refresh, true);
+        action_bar_layer_set_icon_animated(s_action_bar, BUTTON_ID_SELECT, s_icon_tick, true);
+        action_bar_layer_set_icon_animated(s_action_bar, BUTTON_ID_DOWN, s_icon_delete, true);
+        action_bar_layer_set_icon_press_animation(s_action_bar, BUTTON_ID_UP, ActionBarLayerIconPressAnimationMoveLeft);
+        action_bar_layer_set_icon_press_animation(s_action_bar, BUTTON_ID_SELECT, ActionBarLayerIconPressAnimationMoveLeft);
+        action_bar_layer_set_icon_press_animation(s_action_bar, BUTTON_ID_DOWN, ActionBarLayerIconPressAnimationMoveLeft);
+    } else if (s_mode == MODE_CTRL) {
+        action_bar_layer_set_icon_animated(s_action_bar, BUTTON_ID_UP, s_icon_refresh, true);
+        action_bar_layer_set_icon_animated(s_action_bar, BUTTON_ID_SELECT, icon_toggle, true);
+        action_bar_layer_set_icon_animated(s_action_bar, BUTTON_ID_DOWN, s_icon_save, true);
+        action_bar_layer_set_icon_press_animation(s_action_bar, BUTTON_ID_UP, ActionBarLayerIconPressAnimationMoveLeft);
+        action_bar_layer_set_icon_press_animation(s_action_bar, BUTTON_ID_SELECT, ActionBarLayerIconPressAnimationMoveLeft);
+        action_bar_layer_set_icon_press_animation(s_action_bar, BUTTON_ID_DOWN, ActionBarLayerIconPressAnimationMoveLeft);
+    } else if (s_mode == MODE_EXIT) {
+        action_bar_layer_set_icon_animated(s_action_bar, BUTTON_ID_UP, s_icon_save, true);
+        action_bar_layer_set_icon_animated(s_action_bar, BUTTON_ID_SELECT, s_icon_right, true);
+        action_bar_layer_set_icon_animated(s_action_bar, BUTTON_ID_DOWN, s_icon_delete, true);
+        action_bar_layer_set_icon_press_animation(s_action_bar, BUTTON_ID_UP, ActionBarLayerIconPressAnimationMoveLeft);
+        action_bar_layer_set_icon_press_animation(s_action_bar, BUTTON_ID_SELECT, ActionBarLayerIconPressAnimationMoveRight);
+        action_bar_layer_set_icon_press_animation(s_action_bar, BUTTON_ID_DOWN, ActionBarLayerIconPressAnimationMoveLeft);
+    } else {
+        const GBitmap* icon_mode = (get_next_mode(true) == MODE_CTRL ? icon_toggle : s_icon_right);
+        action_bar_layer_set_icon_animated(s_action_bar, BUTTON_ID_UP, s_icon_up, true);
+        action_bar_layer_set_icon_animated(s_action_bar, BUTTON_ID_SELECT, icon_mode, true);
+        action_bar_layer_set_icon_animated(s_action_bar, BUTTON_ID_DOWN, s_icon_down, true);
+        action_bar_layer_set_icon_press_animation(s_action_bar, BUTTON_ID_UP, ActionBarLayerIconPressAnimationMoveUp);
+        action_bar_layer_set_icon_press_animation(s_action_bar, BUTTON_ID_SELECT, ActionBarLayerIconPressAnimationMoveRight);
+        action_bar_layer_set_icon_press_animation(s_action_bar, BUTTON_ID_DOWN, ActionBarLayerIconPressAnimationMoveDown);
     }
-
-    action_bar_layer_set_icon(s_action_bar, BUTTON_ID_SELECT, select_icon);
     action_bar_layer_set_click_config_provider(s_action_bar, click_config_provider);
 }
 
@@ -1032,113 +1053,56 @@ static void update_tick_subscription(TimeUnits new_update_rate) {
     }
 }
 
-// TAP_TIMER_SIMPLE_UI_PATCH_V2
-// Modified by Maru Kitano, 2026.
-// Simplified interaction model: touch selects, Select starts, Back exits.
-static void simple_timer_reset_to_idle(void) {
-    (void)alarm_clear();
-    alarm_cancel_any_wakeup();
-
-    s_state.alarm_duration = 0;
-    s_state.start_time = 0;
-    s_state.elapsed_time = 0;
-    s_state.is_counting = false;
-    s_state.is_alarm_done = false;
-    s_state.alarm_wakeup_id = E_DOES_NOT_EXIST;
-
-    s_save = false;
-    s_mode = MODE_CTRL;
-
-    update_alarm_duration();
-    update_elapsed();
-    update_mode();
-    update_action_bar();
-}
-
-static void simple_timer_select_duration(time_t duration) {
-    (void)alarm_clear();
-    alarm_cancel_any_wakeup();
-
-    s_state.alarm_duration = MAX((time_t)0, duration);
-    s_state.start_time = 0;
-    s_state.elapsed_time = 0;
-    s_state.is_counting = false;
-    s_state.is_alarm_done = false;
-    s_state.alarm_wakeup_id = E_DOES_NOT_EXIST;
-
-    s_save = false;
-    s_mode = MODE_CTRL;
-
-    update_alarm_duration();
-    update_elapsed();
-    update_mode();
-    update_action_bar();
-}
-
-static void simple_timer_start(void) {
-    if (s_state.is_counting || (s_state.alarm_duration <= 0)) {
-        return;
-    }
-
-    vibe_for_start_stop();
-    s_state.start_time = time(NULL);
-    s_state.elapsed_time = 0;
-    s_state.is_counting = true;
-    s_state.is_alarm_done = false;
-    s_save = true;
-    s_mode = MODE_CTRL;
-
-    update_alarm_duration();
-    update_elapsed();
-    update_mode();
-    update_action_bar();
-    update_tick_subscription(SECOND_UNIT);
-}
-
-static void simple_timer_exit(void) {
-    if (alarm_is_pulsing()) {
-        simple_timer_reset_to_idle();
-    } else {
-        stopwatch_tick();
-        s_save = (
-            s_state.is_counting
-            && (s_state.alarm_duration > 0)
-            && (s_state.elapsed_time < s_state.alarm_duration)
-        );
-    }
-
-    window_stack_pop(true);
-}
-
-
 #if PBL_TOUCH
 
 // handle new touch time selection
 static void handle_touch_selection(bool is_duration, uint8_t hours, uint8_t minutes, uint8_t seconds) {
-    time_t duration = 0;
+    stopwatch_tick(); // make sure elapsed_time is up-to-date
 
+    time_t duration;
     if (is_duration) {
-        duration = (
-            (hours * SECONDS_PER_HOUR)
-            + (minutes * SECONDS_PER_MINUTE)
-            + seconds
-        );
+        duration = (hours * SECONDS_PER_HOUR) + (minutes * SECONDS_PER_MINUTE) + seconds;
     } else {
         const time_t now = time(NULL);
-        struct tm target = *localtime(&now);
-        target.tm_hour = hours;
-        target.tm_min = minutes;
-        target.tm_sec = 0;
-
-        time_t target_time = mktime(&target);
-        if (target_time <= now) {
-            target.tm_mday += 1;
-            target_time = mktime(&target);
-        }
-        duration = target_time - now;
+        struct tm* target_time_tomorrow_struct = localtime(&now);
+        target_time_tomorrow_struct->tm_mday += 1;
+        target_time_tomorrow_struct->tm_hour = hours;
+        target_time_tomorrow_struct->tm_min = minutes;
+        ASSERT(seconds == 0);
+        target_time_tomorrow_struct->tm_sec = 0;
+        const time_t target_time_tomorrow = mktime(target_time_tomorrow_struct);
+        duration = (target_time_tomorrow - now) % (12 * SECONDS_PER_HOUR);
     }
 
-    simple_timer_select_duration(duration);
+    switch(config_get()->touchTimerMode) {
+    case TouchTimerEffect_Clear:  // start a brand new timer from blank
+        stopwatch_restart();
+        break;
+    case TouchTimerEffect_Duration:  // keep the elapsed time, set the base duration
+        if (!is_duration) {
+            duration += s_state.elapsed_time + 1;
+        }
+        break;  // nothing to do
+    case TouchTimerEffect_Remaining:  // keep the elapsed time, set the remaining duration
+        duration += s_state.elapsed_time;
+        if (!is_duration) {
+            duration += 1;
+        }
+        break;
+    default:
+        ASSERT(false);
+        break;
+    }
+
+    LOG("SELECTED %d, %s, %u, %u -> timer duration set to %us",
+        config_get()->touchTimerMode, BOOL_TO_STR(is_duration), hours, minutes, duration);
+    do_set(duration);
+
+    // skip to ctrl mode
+    s_mode = MODE_CTRL;
+    update_mode();
+    update_action_bar();
+
     update_tick_subscription(SECOND_UNIT);
 }
 
@@ -1188,20 +1152,44 @@ static void accel_tap_handler(AccelAxisType axis, int32_t direction) {
 }
 
 static void up_click_handler(ClickRecognizerRef recognizer, void *context) {
-    UNUSED(recognizer);
-    UNUSED(context);
-#if PBL_TOUCH
-    touch_adjust_minutes(1);
-#endif
+    TRACE("up_click_handler");
+    static bool prevent_increment_until_release = false;
+    if (do_alarm_clear()) {
+        do_restart();
+    } else {
+        if (s_mode == MODE_CTRL) {
+            if (click_recognizer_is_repeating(recognizer)) {
+                prevent_increment_until_release = true;
+                do_clear();
+            } else {
+                do_restart();
+            }
+        } else if (s_mode == MODE_EXIT) {
+            do_exit(true);
+        } else {
+            if (prevent_increment_until_release && !click_recognizer_is_repeating(recognizer)) {
+                prevent_increment_until_release = false;
+            }
+            if (!prevent_increment_until_release) {
+                do_increment(true, recognizer);
+            }
+        }
+    }
+    update_tick_subscription(SECOND_UNIT);
     enable_touch();
 }
 
 static void down_click_handler(ClickRecognizerRef recognizer, void *context) {
-    UNUSED(recognizer);
-    UNUSED(context);
-#if PBL_TOUCH
-    touch_adjust_minutes(-1);
-#endif
+    TRACE("down_click_handler");
+    ASSERT(s_mode != MODE_CTRL);
+    if (do_alarm_clear() || (s_mode == MODE_EXIT)) {
+        do_exit(false);
+    } else if (s_mode != MODE_CTRL) {
+        do_increment(false, recognizer);
+    } else {
+        return;
+    }
+    update_tick_subscription(SECOND_UNIT);
     enable_touch();
 }
 
@@ -1220,15 +1208,19 @@ static void down_click_handler_ctrl_long(ClickRecognizerRef recognizer, void *co
 }
 
 static void select_click_handler(ClickRecognizerRef recognizer, void *context) {
-    UNUSED(recognizer);
-    UNUSED(context);
-
-    if (do_alarm_clear()) {
-        simple_timer_reset_to_idle();
-    } else {
-        simple_timer_start();
+    TRACE("select_click_handler");
+    if (!do_alarm_clear()) {
+        if (s_mode != MODE_CTRL) {
+            increment_mode(true);
+            update_mode();
+        }
+        // toggle both on entry to and during MODE_CTRL
+        if (s_mode == MODE_CTRL) {
+            do_toggle_pause();
+        }
+        update_action_bar();
     }
-
+    update_tick_subscription(SECOND_UNIT);
     enable_touch();
 }
 
@@ -1245,19 +1237,32 @@ static void select_long_click_handler(ClickRecognizerRef recognizer, void *conte
 }
 
 static void back_click_handler(ClickRecognizerRef recognizer, void *context) {
-    UNUSED(recognizer);
-    UNUSED(context);
-    simple_timer_exit();
+    TRACE("back_click_handler");
+    if (!do_alarm_clear()) {
+        increment_mode(false);
+        if (s_mode < MODE_EXIT) {
+            do_exit(true);
+        } else {
+            update_mode();
+            update_action_bar();
+        }
+    }
+    update_tick_subscription(SECOND_UNIT);
+    enable_touch();
 }
 
 static void click_config_provider(void *context) {
-    UNUSED(context);
-#if PBL_TOUCH
-    window_single_click_subscribe(BUTTON_ID_UP, up_click_handler);
-    window_single_click_subscribe(BUTTON_ID_DOWN, down_click_handler);
-#endif
     window_single_click_subscribe(BUTTON_ID_SELECT, select_click_handler);
+    window_long_click_subscribe(BUTTON_ID_SELECT, LONG_CLICK_DURATION, select_long_click_handler, NULL);
     window_single_click_subscribe(BUTTON_ID_BACK, back_click_handler);
+    window_single_repeating_click_subscribe(BUTTON_ID_UP, 100, up_click_handler);
+
+    if (s_mode == MODE_CTRL) {
+        window_single_click_subscribe(BUTTON_ID_DOWN, down_click_handler_ctrl_short);
+        window_long_click_subscribe(BUTTON_ID_DOWN, LONG_CLICK_DURATION, down_click_handler_ctrl_long, NULL);
+    } else {
+        window_single_repeating_click_subscribe(BUTTON_ID_DOWN, 100, down_click_handler);
+    }
 }
 
 
@@ -1630,7 +1635,7 @@ static void main_window_load(Window *window) {
 
     // status bar
     s_status_bar = status_bar_layer_create();
-    // System clock hidden; keep the layer allocated for safe cleanup.
+    layer_add_child(window_layer, status_bar_layer_get_layer(s_status_bar));
 
     // touch selector
 #if PBL_TOUCH
@@ -1642,49 +1647,19 @@ static void main_window_load(Window *window) {
 
     // business logic
     s_initialising = true;
-    const bool loaded_state = stopwatch_load();
-    if (loaded_state) {
+    if (stopwatch_load()) {
         stopwatch_tick();
         stopwatch_delete();
     } else {
-        s_state.alarm_duration = 0;
-        s_state.start_time = 0;
-        s_state.elapsed_time = 0;
-        s_state.is_counting = false;
-        s_state.is_alarm_done = false;
-        s_state.alarm_wakeup_id = E_DOES_NOT_EXIST;
+        vibe_for_start_stop();
+        stopwatch_clear();
     }
-
-    if (
-        (launch_reason() != APP_LAUNCH_WAKEUP)
-        && (
-            !s_state.is_counting
-            || (s_state.alarm_duration <= 0)
-            || (s_state.elapsed_time >= s_state.alarm_duration)
-        )
-    ) {
-        s_state.alarm_duration = 0;
-        s_state.start_time = 0;
-        s_state.elapsed_time = 0;
-        s_state.is_counting = false;
-        s_state.is_alarm_done = false;
-        s_state.alarm_wakeup_id = E_DOES_NOT_EXIST;
-    }
-
-    s_save = false;
-    s_mode = MODE_CTRL;
-
     update_mode();
     update_alarm_duration();
     update_elapsed();
-
-    if (
-        (launch_reason() == APP_LAUNCH_WAKEUP)
-        && alarm_should_start()
-    ) {
+    if (launch_reason() == APP_LAUNCH_WAKEUP) {
         alarm_start();
     }
-
     update_action_bar();
     alarm_cancel_any_wakeup();
 

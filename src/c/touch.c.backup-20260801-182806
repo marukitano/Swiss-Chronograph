@@ -60,7 +60,7 @@ void touch_adjust_minutes(int delta) {
 static void draw_ruler(Layer *layer, GContext *ctx) {
     const GRect bounds = layer_get_bounds(layer);
     const int16_t ruler_left = bounds.size.w - RULER_WIDTH;
-    const int16_t center_y = 20;
+    const int16_t center_y = bounds.size.h / 2;
 
     graphics_context_set_fill_color(ctx, config_get()->bgColor);
     graphics_fill_rect(ctx, GRect(ruler_left, 0, RULER_WIDTH, bounds.size.h), 0, GCornerNone);
@@ -77,7 +77,7 @@ static void draw_ruler(Layer *layer, GContext *ctx) {
             continue;
         }
 
-        const int16_t y = center_y - (offset * TICK_SPACING);
+        const int16_t y = center_y + (offset * TICK_SPACING);
         if (y < -TICK_SPACING || y > bounds.size.h + TICK_SPACING) {
             continue;
         }
@@ -128,7 +128,7 @@ static void draw_ruler(Layer *layer, GContext *ctx) {
         ctx,
         label,
         fonts_get_system_font(FONT_KEY_GOTHIC_28_BOLD),
-        GRect(0, center_y - 20, bounds.size.w, 40),
+        GRect(8, center_y - 20, ruler_left - 18, 40),
         GTextOverflowModeTrailingEllipsis,
         GTextAlignmentCenter,
         NULL
@@ -150,11 +150,11 @@ static void handle_touch_event(const TouchEvent *event, void *context) {
             s_drag_accumulator += delta_y;
 
             while (s_drag_accumulator >= PIXELS_PER_MINUTE) {
-                touch_adjust_minutes(1);
+                touch_adjust_minutes(-1);
                 s_drag_accumulator -= PIXELS_PER_MINUTE;
             }
             while (s_drag_accumulator <= -PIXELS_PER_MINUTE) {
-                touch_adjust_minutes(-1);
+                touch_adjust_minutes(1);
                 s_drag_accumulator += PIXELS_PER_MINUTE;
             }
         }

@@ -1188,20 +1188,44 @@ static void accel_tap_handler(AccelAxisType axis, int32_t direction) {
 }
 
 static void up_click_handler(ClickRecognizerRef recognizer, void *context) {
-    UNUSED(recognizer);
-    UNUSED(context);
-#if PBL_TOUCH
-    touch_adjust_minutes(1);
-#endif
+    TRACE("up_click_handler");
+    static bool prevent_increment_until_release = false;
+    if (do_alarm_clear()) {
+        do_restart();
+    } else {
+        if (s_mode == MODE_CTRL) {
+            if (click_recognizer_is_repeating(recognizer)) {
+                prevent_increment_until_release = true;
+                do_clear();
+            } else {
+                do_restart();
+            }
+        } else if (s_mode == MODE_EXIT) {
+            do_exit(true);
+        } else {
+            if (prevent_increment_until_release && !click_recognizer_is_repeating(recognizer)) {
+                prevent_increment_until_release = false;
+            }
+            if (!prevent_increment_until_release) {
+                do_increment(true, recognizer);
+            }
+        }
+    }
+    update_tick_subscription(SECOND_UNIT);
     enable_touch();
 }
 
 static void down_click_handler(ClickRecognizerRef recognizer, void *context) {
-    UNUSED(recognizer);
-    UNUSED(context);
-#if PBL_TOUCH
-    touch_adjust_minutes(-1);
-#endif
+    TRACE("down_click_handler");
+    ASSERT(s_mode != MODE_CTRL);
+    if (do_alarm_clear() || (s_mode == MODE_EXIT)) {
+        do_exit(false);
+    } else if (s_mode != MODE_CTRL) {
+        do_increment(false, recognizer);
+    } else {
+        return;
+    }
+    update_tick_subscription(SECOND_UNIT);
     enable_touch();
 }
 
@@ -1252,10 +1276,6 @@ static void back_click_handler(ClickRecognizerRef recognizer, void *context) {
 
 static void click_config_provider(void *context) {
     UNUSED(context);
-#if PBL_TOUCH
-    window_single_click_subscribe(BUTTON_ID_UP, up_click_handler);
-    window_single_click_subscribe(BUTTON_ID_DOWN, down_click_handler);
-#endif
     window_single_click_subscribe(BUTTON_ID_SELECT, select_click_handler);
     window_single_click_subscribe(BUTTON_ID_BACK, back_click_handler);
 }
@@ -1630,7 +1650,7 @@ static void main_window_load(Window *window) {
 
     // status bar
     s_status_bar = status_bar_layer_create();
-    // System clock hidden; keep the layer allocated for safe cleanup.
+    layer_add_child(window_layer, status_bar_layer_get_layer(s_status_bar));
 
     // touch selector
 #if PBL_TOUCH

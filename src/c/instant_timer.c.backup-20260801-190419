@@ -1630,7 +1630,7 @@ static void main_window_load(Window *window) {
 
     // status bar
     s_status_bar = status_bar_layer_create();
-    // System clock hidden; keep the layer allocated for safe cleanup.
+    layer_add_child(window_layer, status_bar_layer_get_layer(s_status_bar));
 
     // touch selector
 #if PBL_TOUCH
