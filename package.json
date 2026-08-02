@@ -51,7 +51,8 @@
       "shortAlarmMinutes",
       "shortStopwatchMinutes",
       "roundIconOutline",
-      "audioVolume"
+      "audioVolume",
+      "showCentiseconds"
     ],
     "resources": {
       "media": [

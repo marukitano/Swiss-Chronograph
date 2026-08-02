@@ -80,6 +80,13 @@
         ]
       },
       {
+        "type": "toggle",
+        "messageKey": "showCentiseconds",
+        "label": "Hundredths of a second",
+        "description": "Show hundredths below 100 minutes. Hidden by default for a calmer display.",
+        "defaultValue": false
+      },
+      {
         "type": "color",
         "messageKey": "ringColorRemaining",
         "label": "Read line",

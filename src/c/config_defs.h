@@ -49,6 +49,7 @@
     MACRO(INT,   int8_t,              shortStopwatchMinutes,        1) \
     MACRO(BOOL,  bool,                roundIconOutline,             true) \
     MACRO(INT,   uint8_t,             audioVolume,                  0) \
+    MACRO(BOOL,  bool,                showCentiseconds,             false) \
 /* end of X_CONFIG_OPTIONS */
 
 // The maximum value of shortAlarmMinutes and shortStopwatchMinutes, in config.json
