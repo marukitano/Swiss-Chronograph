@@ -1,7 +1,7 @@
 {
-  "name": "Instant Timer",
-  "author": "howeaj",
-  "version": "2.8.0",
+  "name": "Tap Timer",
+  "author": "marukitano",
+  "version": "1.0.0",
   "keywords": [
     "pebble-app"
   ],
@@ -10,7 +10,7 @@
     "@rebble/clay": "^1.0.8"
   },
   "pebble": {
-    "displayName": "Instant Timer",
+    "displayName": "Tap Timer",
     "uuid": "92860832-e162-49d5-bd89-81c92c0fe40c",
     "sdkVersion": "3",
     "enableMultiJS": true,

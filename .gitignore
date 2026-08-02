@@ -4,3 +4,9 @@
 /build
 /node_modules
 /resources/images/unused
+
+# Local backup files
+*.backup
+*.backup-*
+*.bak
+*~
