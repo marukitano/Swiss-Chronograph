@@ -1,5 +1,4 @@
 // Copyright (c) 2026 Andrew Howe. All rights reserved. See LICENSE (GPLv3.0).
-// TAP_TIMER_TOUCH_UI_CLEAN_V1
 // Vertical timer-ruler interaction by Maru Kitano, 2026.
 
 #include "touch.h"
@@ -42,8 +41,6 @@
 #define RUN_MINIMIZE_CENTER_Y 36
 #define RUN_MINIMIZE_ANIM_MS 55
 #define RUN_MINIMIZE_EXIT_DELAY_MS 90
-#define RUN_PAUSE_CONTROLS_ANIM_MS 42
-#define RUN_PAUSE_CONTROLS_HIDDEN_OFFSET 30
 #define RUN_PAUSE_CONTROL_TOP_CENTER_Y 36
 #define RUN_PAUSE_CONTROL_BOTTOM_MARGIN 36
 #define RUN_CONTROLS_ENTRY_DELAY_MS 500
@@ -64,7 +61,6 @@ static GBitmap *s_ppf_digit_sheet;
 static GBitmap *s_ppf_digits[PPF_DIGIT_COUNT];
 static GBitmap *s_ppf_digit_sheet_white;
 static GBitmap *s_ppf_digits_white[PPF_DIGIT_COUNT];
-// TAP_TIMER_PPF_WHITE_SPRITE_V1
 static TouchSelectionCallback s_callback;
 static TouchServiceHandler s_parent_handler;
 static TouchAutoStartCallback s_auto_start_callback;
@@ -77,7 +73,6 @@ static int16_t s_selected_minutes;
 
 static AppTimer *s_touch_disable_timer;
 static AppTimer *s_arrow_anim_timer;
-// TAP_TIMER_DELAYED_ARROW_ANIMATION_V2
 static bool s_arrow_animation_started;
 static void start_arrow_animation(void);
 static void stop_arrow_animation(void);
@@ -106,29 +101,18 @@ static uint8_t s_minimize_action_draw_width = RUN_ACTION_MARKER_WIDTH;
 static bool s_minimize_action_button_down;
 static bool s_minimize_action_pressed;
 static TouchRunActionCallback s_minimize_action_release_callback;
-// TAP_TIMER_PAUSE_SIDE_CONTROLS_V1
 static AppTimer *s_pause_controls_anim_timer;
 static uint8_t s_pause_controls_anim_step;
 static int16_t s_pause_controls_offset =
-    RUN_PAUSE_CONTROLS_HIDDEN_OFFSET;
+    RUN_CONTROLS_HIDDEN_OFFSET;
 static bool s_pause_controls_visible;
-// TAP_TIMER_RUN_CONTROLS_ENTRY_V1
 static AppTimer *s_run_controls_entry_timer;
 static uint8_t s_run_controls_entry_step;
 static int16_t s_run_controls_entry_offset =
     RUN_CONTROLS_HIDDEN_OFFSET;
 static bool s_run_controls_entry_visible;
-static const int8_t s_run_controls_entry_offsets[] = {
+static const int8_t s_control_bounce_offsets[] = {
     RUN_CONTROLS_HIDDEN_OFFSET,
-    18,
-    8,
-    -3,
-    2,
-    -1,
-    0
-};
-static const int8_t s_pause_controls_offsets[] = {
-    RUN_PAUSE_CONTROLS_HIDDEN_OFFSET,
     18,
     8,
     -3,
@@ -139,18 +123,15 @@ static const int8_t s_pause_controls_offsets[] = {
 static AppTimer *s_running_frame_timer;
 static AppTimer *s_running_transition_timer;
 
-
 static int16_t clamp_minutes(int16_t minutes) {
     return MIN(MAX(minutes, MIN_MINUTES), MAX_MINUTES);
 }
-
 
 static void publish_selection(void) {
     if (s_callback != NULL) {
         s_callback(true, 0, (uint8_t)s_selected_minutes, 0);
     }
 }
-
 
 static void set_minutes(int16_t minutes, bool publish) {
     const int16_t clamped = clamp_minutes(minutes);
@@ -170,7 +151,6 @@ static void set_minutes(int16_t minutes, bool publish) {
     }
 }
 
-
 void touch_adjust_minutes(int delta) {
     if (s_running_screen) {
         return;
@@ -182,7 +162,6 @@ void touch_adjust_minutes(int delta) {
 
     set_minutes(s_selected_minutes + delta, true);
 }
-
 
 static void arrow_anim_tick(void *context) {
     UNUSED(context);
@@ -202,7 +181,6 @@ static void arrow_anim_tick(void *context) {
     }
 }
 
-
 static void stop_arrow_animation(void) {
     if (s_arrow_anim_timer != NULL) {
         app_timer_cancel(s_arrow_anim_timer);
@@ -216,7 +194,6 @@ static void stop_arrow_animation(void) {
         layer_mark_dirty(s_layer);
     }
 }
-
 
 static void start_arrow_animation(void) {
     if (s_arrow_animation_started || s_layer == NULL) {
@@ -237,8 +214,6 @@ static void start_arrow_animation(void) {
         s_arrow_animation_started = false;
     }
 }
-
-
 
 static void draw_chevron_down(
     GContext *ctx,
@@ -263,10 +238,8 @@ static void draw_chevron_down(
     );
 }
 
-
 static void cancel_arrow_fill(void);
 static void start_arrow_fill(void);
-
 
 static void finish_arrow_bounce(void) {
     s_arrow_drag_offset = 0;
@@ -280,7 +253,6 @@ static void finish_arrow_bounce(void) {
 
     start_arrow_fill();
 }
-
 
 static void arrow_bounce_tick(void *context) {
     UNUSED(context);
@@ -340,7 +312,6 @@ static void arrow_bounce_tick(void *context) {
     }
 }
 
-
 static void start_arrow_bounce(void) {
     if (s_arrow_bounce_timer != NULL) {
         app_timer_cancel(s_arrow_bounce_timer);
@@ -364,7 +335,6 @@ static void start_arrow_bounce(void) {
     );
 }
 
-
 static void cancel_arrow_fill(void) {
     if (s_arrow_fill_timer != NULL) {
         app_timer_cancel(s_arrow_fill_timer);
@@ -378,7 +348,6 @@ static void cancel_arrow_fill(void) {
         layer_mark_dirty(s_layer);
     }
 }
-
 
 static void arrow_fill_tick(void *context) {
     UNUSED(context);
@@ -422,7 +391,6 @@ static void arrow_fill_tick(void *context) {
     );
 }
 
-
 static void start_arrow_fill(void) {
     cancel_arrow_fill();
 
@@ -438,7 +406,6 @@ static void start_arrow_fill(void) {
         NULL
     );
 }
-
 
 static GColor arrow_color_for_index(int index) {
 #if PBL_COLOR
@@ -486,14 +453,12 @@ static GColor arrow_color_for_index(int index) {
     return dim;
 }
 
-
 static uint32_t monotonic_ms(void) {
     time_t seconds;
     uint16_t milliseconds;
     time_ms(&seconds, &milliseconds);
     return ((uint32_t)seconds * 1000U) + milliseconds;
 }
-
 
 static uint32_t running_remaining_ms(void) {
     if (!s_running_screen) {
@@ -512,8 +477,6 @@ static uint32_t running_remaining_ms(void) {
         : s_running_duration_ms - elapsed_ms;
 }
 
-
-
 static void cancel_running_timers(void) {
     if (s_running_frame_timer != NULL) {
         app_timer_cancel(s_running_frame_timer);
@@ -525,8 +488,6 @@ static void cancel_running_timers(void) {
         s_running_transition_timer = NULL;
     }
 }
-
-
 
 static void cancel_run_action_animation(void) {
     if (s_run_action_anim_timer != NULL) {
@@ -543,8 +504,6 @@ static void cancel_run_action_animation(void) {
         layer_mark_dirty(s_layer);
     }
 }
-
-
 
 static void run_action_animation_tick(void *context) {
     UNUSED(context);
@@ -596,7 +555,6 @@ static void run_action_animation_tick(void *context) {
     }
 }
 
-
 static void cancel_minimize_action_animation(void) {
     if (s_minimize_action_anim_timer != NULL) {
         app_timer_cancel(s_minimize_action_anim_timer);
@@ -628,8 +586,6 @@ static void minimize_action_finish_tick(void *context) {
         callback();
     }
 }
-
-
 
 static void minimize_action_animation_tick(void *context) {
     UNUSED(context);
@@ -697,7 +653,6 @@ static void minimize_action_animation_tick(void *context) {
     }
 }
 
-
 static void hide_pause_controls(void) {
     if (s_pause_controls_anim_timer != NULL) {
         app_timer_cancel(s_pause_controls_anim_timer);
@@ -706,14 +661,13 @@ static void hide_pause_controls(void) {
 
     s_pause_controls_anim_step = 0;
     s_pause_controls_offset =
-        RUN_PAUSE_CONTROLS_HIDDEN_OFFSET;
+        RUN_CONTROLS_HIDDEN_OFFSET;
     s_pause_controls_visible = false;
 
     if (s_layer != NULL) {
         layer_mark_dirty(s_layer);
     }
 }
-
 
 static void pause_controls_animation_tick(void *context) {
     UNUSED(context);
@@ -727,14 +681,14 @@ static void pause_controls_animation_tick(void *context) {
     }
 
     if (s_pause_controls_anim_step
-        >= ARRAY_LENGTH(s_pause_controls_offsets)) {
+        >= ARRAY_LENGTH(s_control_bounce_offsets)) {
         s_pause_controls_offset = 0;
         layer_mark_dirty(s_layer);
         return;
     }
 
     s_pause_controls_offset =
-        s_pause_controls_offsets[
+        s_control_bounce_offsets[
             s_pause_controls_anim_step
         ];
     s_pause_controls_anim_step++;
@@ -742,9 +696,9 @@ static void pause_controls_animation_tick(void *context) {
     layer_mark_dirty(s_layer);
 
     if (s_pause_controls_anim_step
-        < ARRAY_LENGTH(s_pause_controls_offsets)) {
+        < ARRAY_LENGTH(s_control_bounce_offsets)) {
         s_pause_controls_anim_timer = app_timer_register(
-            RUN_PAUSE_CONTROLS_ANIM_MS,
+            RUN_CONTROLS_BOUNCE_MS,
             pause_controls_animation_tick,
             NULL
         );
@@ -753,7 +707,6 @@ static void pause_controls_animation_tick(void *context) {
         layer_mark_dirty(s_layer);
     }
 }
-
 
 static void show_pause_controls(void) {
     if (!s_running_screen
@@ -770,12 +723,12 @@ static void show_pause_controls(void) {
     s_pause_controls_visible = true;
     s_pause_controls_anim_step = 1;
     s_pause_controls_offset =
-        s_pause_controls_offsets[0];
+        s_control_bounce_offsets[0];
 
     layer_mark_dirty(s_layer);
 
     s_pause_controls_anim_timer = app_timer_register(
-        RUN_PAUSE_CONTROLS_ANIM_MS,
+        RUN_CONTROLS_BOUNCE_MS,
         pause_controls_animation_tick,
         NULL
     );
@@ -785,7 +738,6 @@ static void show_pause_controls(void) {
         layer_mark_dirty(s_layer);
     }
 }
-
 
 static void hide_run_controls(void) {
     if (s_run_controls_entry_timer != NULL) {
@@ -803,7 +755,6 @@ static void hide_run_controls(void) {
     }
 }
 
-
 static void run_controls_entry_tick(void *context) {
     UNUSED(context);
     s_run_controls_entry_timer = NULL;
@@ -818,7 +769,7 @@ static void run_controls_entry_tick(void *context) {
         s_run_controls_entry_visible = true;
         s_run_controls_entry_step = 1;
         s_run_controls_entry_offset =
-            s_run_controls_entry_offsets[0];
+            s_control_bounce_offsets[0];
 
         layer_mark_dirty(s_layer);
 
@@ -831,14 +782,14 @@ static void run_controls_entry_tick(void *context) {
     }
 
     if (s_run_controls_entry_step
-        >= ARRAY_LENGTH(s_run_controls_entry_offsets)) {
+        >= ARRAY_LENGTH(s_control_bounce_offsets)) {
         s_run_controls_entry_offset = 0;
         layer_mark_dirty(s_layer);
         return;
     }
 
     s_run_controls_entry_offset =
-        s_run_controls_entry_offsets[
+        s_control_bounce_offsets[
             s_run_controls_entry_step
         ];
     s_run_controls_entry_step++;
@@ -846,7 +797,7 @@ static void run_controls_entry_tick(void *context) {
     layer_mark_dirty(s_layer);
 
     if (s_run_controls_entry_step
-        < ARRAY_LENGTH(s_run_controls_entry_offsets)) {
+        < ARRAY_LENGTH(s_control_bounce_offsets)) {
         s_run_controls_entry_timer = app_timer_register(
             RUN_CONTROLS_BOUNCE_MS,
             run_controls_entry_tick,
@@ -857,7 +808,6 @@ static void run_controls_entry_tick(void *context) {
         layer_mark_dirty(s_layer);
     }
 }
-
 
 static void schedule_run_controls_entry(void) {
     hide_run_controls();
@@ -879,11 +829,6 @@ static void schedule_run_controls_entry(void) {
     }
 }
 
-
-
-
-
-
 static void running_frame_tick(void *context) {
     UNUSED(context);
     s_running_frame_timer = NULL;
@@ -899,7 +844,6 @@ static void running_frame_tick(void *context) {
         NULL
     );
 }
-
 
 static void draw_top_slide_transition(
     GContext *ctx,
@@ -955,8 +899,6 @@ static void draw_top_slide_transition(
             edge_y = h - 1;
         }
 
-        graphics_context_set_stroke_color(ctx, GColorWhite);
-
         graphics_draw_line(
             ctx,
             GPoint(x, 0),
@@ -964,7 +906,6 @@ static void draw_top_slide_transition(
         );
     }
 }
-
 
 static void running_transition_tick(void *context) {
     UNUSED(context);
@@ -1000,7 +941,6 @@ static void running_transition_tick(void *context) {
         NULL
     );
 }
-
 
 void touch_start_running(uint32_t duration_seconds) {
     if (s_layer == NULL || duration_seconds == 0) {
@@ -1043,7 +983,6 @@ void touch_start_running(uint32_t duration_seconds) {
 
     layer_mark_dirty(s_layer);
 }
-
 
 void touch_restore_running(
     uint32_t remaining_seconds,
@@ -1091,21 +1030,20 @@ void touch_restore_running(
     cancel_running_timers();
     schedule_run_controls_entry();
 
-    s_running_frame_timer = app_timer_register(
-        RUNNING_FRAME_MS,
-        running_frame_tick,
-        NULL
-    );
+    if (!paused) {
+        s_running_frame_timer = app_timer_register(
+            RUNNING_FRAME_MS,
+            running_frame_tick,
+            NULL
+        );
+    }
 
     layer_mark_dirty(s_layer);
 }
 
-
-
 bool touch_running_screen_active(void) {
     return s_running_screen;
 }
-
 
 void touch_set_paused(bool paused) {
     if (!s_running_screen || paused == s_running_paused) {
@@ -1145,7 +1083,6 @@ void touch_set_paused(bool paused) {
     }
 }
 
-
 void touch_add_running_seconds(uint32_t seconds) {
     if (!s_running_screen
         || !s_running_paused
@@ -1169,9 +1106,6 @@ void touch_add_running_seconds(uint32_t seconds) {
         layer_mark_dirty(s_layer);
     }
 }
-
-
-
 
 bool touch_run_action_press(
     TouchRunActionCallback callback
@@ -1209,7 +1143,6 @@ bool touch_run_action_press(
     return true;
 }
 
-
 void touch_run_action_release(void) {
     if (!s_run_action_button_down) {
         return;
@@ -1227,7 +1160,6 @@ void touch_run_action_release(void) {
         );
     }
 }
-
 
 bool touch_minimize_action_press(void) {
     if (!s_running_screen
@@ -1264,7 +1196,6 @@ bool touch_minimize_action_press(void) {
     return true;
 }
 
-
 void touch_minimize_action_release(
     TouchRunActionCallback callback
 ) {
@@ -1299,10 +1230,6 @@ void touch_minimize_action_release(
         }
     }
 }
-
-
-
-
 
 void touch_reset_idle(void) {
     cancel_running_timers();
@@ -1342,7 +1269,6 @@ void touch_reset_idle(void) {
         layer_mark_dirty(s_layer);
     }
 }
-
 
 static void draw_running_action_bar(
     GContext *ctx,
@@ -1384,7 +1310,6 @@ static void draw_running_action_bar(
     const int16_t center_x =
         edge_x - RUN_ACTION_MARKER_WIDTH - 10;
 
-    graphics_context_set_fill_color(ctx, GColorBlack);
     graphics_context_set_stroke_color(ctx, GColorBlack);
     graphics_context_set_stroke_width(ctx, 1);
 
@@ -1418,11 +1343,7 @@ static void draw_running_action_bar(
     }
 }
 
-
-static void draw_running_minimize_action(
-    GContext *ctx,
-    GRect bounds
-) {
+static void draw_running_minimize_action(GContext *ctx) {
     if (!s_run_controls_entry_visible) {
         return;
     }
@@ -1476,9 +1397,7 @@ static void draw_running_minimize_action(
         GPoint(center_x + 6, center_y + 6)
     );
 
-    UNUSED(bounds);
 }
-
 
 static void draw_pause_side_control(
     GContext *ctx,
@@ -1548,7 +1467,6 @@ static void draw_pause_side_control(
     }
 }
 
-
 static void draw_running_pause_controls(
     GContext *ctx,
     GRect bounds
@@ -1572,14 +1490,6 @@ static void draw_running_pause_controls(
     );
 }
 
-
-
-
-
-
-
-
-// TAP_TIMER_PPF_DIGITS_V1
 static int16_t ppf_character_width(char character) {
     if (character >= '0' && character <= '9') {
         return PPF_DIGIT_WIDTH;
@@ -1591,7 +1501,6 @@ static int16_t ppf_character_width(char character) {
 
     return 0;
 }
-
 
 static int16_t ppf_text_width(const char *text) {
     if (text == NULL || text[0] == '\0') {
@@ -1623,7 +1532,6 @@ static int16_t ppf_text_width(const char *text) {
 
     return width;
 }
-
 
 static void draw_ppf_colon(
     GContext *ctx,
@@ -1660,7 +1568,6 @@ static void draw_ppf_colon(
         GCornerNone
     );
 }
-
 
 static bool draw_ppf_text_centered(
     GContext *ctx,
@@ -1739,7 +1646,6 @@ static bool draw_ppf_text_centered(
     return true;
 }
 
-
 static void create_ppf_digits(void) {
     s_ppf_digit_sheet = gbitmap_create_with_resource(
         RESOURCE_ID_PPF_DIGITS
@@ -1750,6 +1656,16 @@ static void create_ppf_digits(void) {
 
     if (s_ppf_digit_sheet == NULL
         || s_ppf_digit_sheet_white == NULL) {
+        if (s_ppf_digit_sheet != NULL) {
+            gbitmap_destroy(s_ppf_digit_sheet);
+            s_ppf_digit_sheet = NULL;
+        }
+
+        if (s_ppf_digit_sheet_white != NULL) {
+            gbitmap_destroy(s_ppf_digit_sheet_white);
+            s_ppf_digit_sheet_white = NULL;
+        }
+
         return;
     }
 
@@ -1777,7 +1693,6 @@ static void create_ppf_digits(void) {
     }
 }
 
-
 static void destroy_ppf_digits(void) {
     for (uint8_t digit = 0;
          digit < PPF_DIGIT_COUNT;
@@ -1803,7 +1718,6 @@ static void destroy_ppf_digits(void) {
         s_ppf_digit_sheet_white = NULL;
     }
 }
-
 
 static void draw_running_countdown(Layer *layer, GContext *ctx) {
     const GRect bounds = layer_get_bounds(layer);
@@ -1863,11 +1777,10 @@ static void draw_running_countdown(Layer *layer, GContext *ctx) {
         );
     }
 
-    draw_running_minimize_action(ctx, bounds);
+    draw_running_minimize_action(ctx);
     draw_running_pause_controls(ctx, bounds);
     draw_running_action_bar(ctx, bounds);
 }
-
 
 static void draw_ruler(Layer *layer, GContext *ctx) {
     if (s_running_screen) {
@@ -1965,9 +1878,6 @@ static void draw_ruler(Layer *layer, GContext *ctx) {
 
     snprintf(label, sizeof(label), "%d", s_selected_minutes);
 
-    // TAP_TIMER_PPF_SELECTION_DIGITS_V1
-    // TAP_TIMER_PPF_SELECTION_WHITE_V2
-    // TAP_TIMER_CENTER_SELECTION_NUMBER_V1
     // Center on the full display and exactly on the read line.
     const GRect selected_value_frame = GRect(
         0,
@@ -2028,7 +1938,6 @@ static void draw_ruler(Layer *layer, GContext *ctx) {
     }
 }
 
-
 static void handle_touch_event(
     const TouchEvent *event,
     void *context
@@ -2041,7 +1950,6 @@ static void handle_touch_event(
     case TouchEvent_Touchdown:
         cancel_arrow_fill();
 
-        // TAP_TIMER_ARROW_START_ON_RELEASE_V1
         // Keep the selector quiet during the entire drag gesture.
         stop_arrow_animation();
         s_touching = true;
@@ -2133,13 +2041,11 @@ static void handle_touch_event(
     }
 }
 
-
 static void timeout_enable_callback(void *context) {
     UNUSED(context);
     s_touch_disable_timer = NULL;
     touch_enable(false);
 }
-
 
 static void schedule_touch_disable(void) {
     if (!config_get()->touchDisableWhileInactive) {
@@ -2160,11 +2066,9 @@ static void schedule_touch_disable(void) {
     }
 }
 
-
 bool touch_in_progress(void) {
     return s_touching;
 }
-
 
 void touch_enable(bool enable) {
     if (!touch_service_is_enabled() || s_layer == NULL) {
@@ -2191,7 +2095,6 @@ void touch_enable(bool enable) {
         s_touching = false;
     }
 }
-
 
 void touch_create(
     Layer *parent,
@@ -2233,7 +2136,7 @@ void touch_create(
     s_pause_controls_anim_timer = NULL;
     s_pause_controls_anim_step = 0;
     s_pause_controls_offset =
-        RUN_PAUSE_CONTROLS_HIDDEN_OFFSET;
+        RUN_CONTROLS_HIDDEN_OFFSET;
     s_pause_controls_visible = false;
     s_run_controls_entry_timer = NULL;
     s_run_controls_entry_step = 0;
@@ -2256,7 +2159,6 @@ void touch_create(
 
     touch_enable(true);
 }
-
 
 void touch_destroy(void) {
     if (s_layer == NULL) {

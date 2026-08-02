@@ -80,41 +80,6 @@
         },
         {
           "type": "bitmap",
-          "name": "ICON_DOWN",
-          "file": "images/action_bar_caret_down.png"
-        },
-        {
-          "type": "bitmap",
-          "name": "ICON_RIGHT",
-          "file": "images/action_bar_caret_right.png"
-        },
-        {
-          "type": "bitmap",
-          "name": "ICON_UP",
-          "file": "images/action_bar_caret_up.png"
-        },
-        {
-          "type": "bitmap",
-          "name": "ICON_DELETE",
-          "file": "images/action_bar_cross.png"
-        },
-        {
-          "type": "bitmap",
-          "name": "ICON_PAUSE",
-          "file": "images/action_bar_pause.png"
-        },
-        {
-          "type": "bitmap",
-          "name": "ICON_REWIND",
-          "file": "images/action_bar_rewind.png"
-        },
-        {
-          "type": "bitmap",
-          "name": "ICON_SAVE",
-          "file": "images/action_bar_save.png"
-        },
-        {
-          "type": "bitmap",
           "name": "ICON_START",
           "file": "images/action_bar_start.png"
         },
@@ -140,28 +105,6 @@
         },
         {
           "type": "bitmap",
-          "name": "BELL_L",
-          "file": "images/bell_left.png",
-          "targetPlatforms": [
-            "basalt",
-            "chalk",
-            "emery",
-            "gabbro"
-          ]
-        },
-        {
-          "type": "bitmap",
-          "name": "BELL_R",
-          "file": "images/bell_right.png",
-          "targetPlatforms": [
-            "basalt",
-            "chalk",
-            "emery",
-            "gabbro"
-          ]
-        },
-        {
-          "type": "bitmap",
           "name": "PPF_DIGITS",
           "file": "font/ppf-digits.png"
         },
@@ -169,16 +112,6 @@
           "type": "bitmap",
           "name": "PPF_DIGITS_WHITE",
           "file": "font/ppf-digits-white.png"
-        },
-        {
-          "type": "bitmap",
-          "name": "SAVE_LARGE",
-          "file": "images/save_large.png"
-        },
-        {
-          "type": "bitmap",
-          "name": "TRASH",
-          "file": "images/trash.png"
         }
       ]
     }

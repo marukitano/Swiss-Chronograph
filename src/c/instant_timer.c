@@ -11,7 +11,6 @@
         - https://github.com/coredevices/pypkjs/commit/b0f02e1bca2d005524c8ee46aaf45aac1531b816
 */
 
-#include <math.h>
 #include <pebble.h>
 #include <stdio.h>
 #include <time.h>
@@ -30,22 +29,12 @@
 #include "persist_keys.h"
 #include "touch.h"
 
-
-#define LONG_CLICK_DURATION (500)  // duration for long click events
 #define LIGHT_FADE_TIME_MS (500)  // The system duration for backlight fade, from light.c
 
-
 static Window *s_main_window;
-static StatusBarLayer *s_status_bar;
 
 static Layer* s_bg_layer;
 static Layer* s_duration_layer;
-
-#if PBL_COLOR
-    static GBitmap* s_icon_bell;
-    static GBitmap* s_icon_bell_l;
-    static GBitmap* s_icon_bell_r;
-#endif // PBL_COLOR
 
 static BitmapLayer* s_status_icon_layer;
 static GBitmap* s_status_icon_alarm;
@@ -67,20 +56,8 @@ static char s_remaining_text[MAX_TIME_TEXT_SIZE] = "00h00m00s";
 
 // action bar
 static ActionBarLayer *s_action_bar;
-static GBitmap* s_icon_up;
-static GBitmap* s_icon_right;
-static GBitmap* s_icon_down;
-static GBitmap* s_icon_pause;
 static GBitmap* s_icon_start;
-static GBitmap* s_icon_delete;
-static GBitmap* s_icon_refresh;
-static GBitmap* s_icon_save;
 static GBitmap* s_icon_tick;
-
-// exit screen
-static BitmapLayer* s_exit_layer;
-static GBitmap* s_icon_trash;
-static GBitmap* s_icon_save_large;
 
 typedef enum IncrementMode_e {
     INCR_HOURS = 0,
@@ -90,7 +67,6 @@ typedef enum IncrementMode_e {
 } IncrementMode;
 
 // mode state
-#define MODE_EXIT  (-1)
 #define MODE_HOURS INCR_HOURS
 #define MODE_5MINS INCR_5MINS
 #define MODE_MINS  INCR_MINS
@@ -122,7 +98,6 @@ State_t s_state = {
 static bool s_save = true;  // whether to save on exit
 static bool s_initialising = true;
 static TimeUnits s_update_rate = YEAR_UNIT;
-
 
 /******************************************************************************
  Generic-ish functions
@@ -193,7 +168,6 @@ static void animate_scroll(Layer *layer, bool appear, bool from_below, bool* was
     *was_visible = appear;
 }
 
-
 /******************************************************************************
  Persistence
 ******************************************************************************/
@@ -229,7 +203,6 @@ static void stopwatch_delete(void){
     status = persist_delete(PERSIST_KEY_TIMER_VERSION);
     ASSERT((status == S_TRUE) || (status == E_DOES_NOT_EXIST));
 }
-
 
 /******************************************************************************
  Business logic
@@ -270,17 +243,6 @@ static void stopwatch_toggle(void) {
     }
 }
 
-static void stopwatch_restart(void) {
-    s_state.start_time = time(NULL);
-    s_state.elapsed_time = 0;
-}
-
-static void stopwatch_clear(void) {
-    s_state.alarm_duration = 0;
-    s_state.is_counting = true;
-    stopwatch_restart();
-}
-
 /** Return the value to be added (add=True) or subtracted (add=False) by the next increment_alarm().
 
     This doesn't count handling of decrements below 0.
@@ -316,36 +278,6 @@ static time_t get_alarm_increment_diff(const IncrementMode incr, const bool add)
 }
 
 /// Increment (add=True) or decrement (add=False) the alarm duration.
-static void increment_alarm(const IncrementMode incr, const bool add, const bool allow_wrap) {
-    const time_t change = get_alarm_increment_diff(incr, add);
-
-    if (!add && (change > s_state.alarm_duration)){
-        if (allow_wrap && (s_state.alarm_duration == 0)){  // when decrementing from 0, jump to 8h or 55m or 45s
-            switch (incr) {
-                case INCR_HOURS:
-                    s_state.alarm_duration = 8 * SECONDS_PER_HOUR;
-                    break;
-                case INCR_5MINS:
-                    s_state.alarm_duration = 55 * SECONDS_PER_MINUTE;
-                    break;
-                case INCR_MINS:
-                    s_state.alarm_duration = 30 * SECONDS_PER_MINUTE;
-                    break;
-                case INCR_SECS:
-                    s_state.alarm_duration = 45;
-                    break;
-                default:
-                    ASSERT(false);
-                    break;
-            }
-        } else {
-            s_state.alarm_duration = 0;
-        }
-    } else {
-        s_state.alarm_duration += change * (add ? 1 : -1);
-    }
-}
-
 /// Return the next mode that would be reached via increment (add=True) or decrement (add=False)
 static int get_next_mode(const bool add) {
     int next_mode = s_mode + (add ? 1 : -1);
@@ -366,11 +298,6 @@ static int get_next_mode(const bool add) {
 }
 
 /// Increment (add=True) or decrement (add=False) the mode.
-static void increment_mode(const bool add) {
-    s_mode = get_next_mode(add);
-}
-
-
 /******************************************************************************
  Alarm
 ******************************************************************************/
@@ -513,7 +440,6 @@ static void alarm_schedule_any_wakeup(void) {
 static void alarm_reset(void) {
     s_state.is_alarm_done = stopwatch_get_alarm_time() == 0;
 }
-
 
 /******************************************************************************
  UI updates
@@ -664,10 +590,6 @@ static void update_mode(void) {
         case MODE_CTRL:
             frame.origin.x = 150;
             break;
-        case MODE_EXIT:
-            text = two_digit_hours ? "^^" : "^";
-            frame.origin.x = -150;
-            break;
         default:
             ASSERT(false);
             break;
@@ -705,23 +627,6 @@ static void vibe_for_start_stop(void) {
     };
     vibes_enqueue_custom_pattern(pat);
 }
-
-static void animate_exit_screen(bool save, bool show) {
-    bitmap_layer_set_bitmap(s_exit_layer, save ? s_icon_save_large : s_icon_trash);
-
-    static bool was_visible = false;
-    animate_scroll((Layer*)s_exit_layer, show, !save, &was_visible);
-}
-
-static void create_exit_screen(Layer* parent) {
-    s_exit_layer = bitmap_layer_create(layer_get_frame(parent));
-    s_icon_trash = gbitmap_create_with_resource(RESOURCE_ID_TRASH);
-    s_icon_save_large = gbitmap_create_with_resource(RESOURCE_ID_SAVE_LARGE);
-    bitmap_layer_set_background_color(s_exit_layer, GColorBlack);
-    layer_add_child(parent, bitmap_layer_get_layer(s_exit_layer));
-    animate_exit_screen(true, false);
-}
-
 
 /******************************************************************************
  Handlers
@@ -763,40 +668,11 @@ void glance_reload_callback(AppGlanceReloadSession *session, size_t limit, void 
 #endif // !PBL_PLATFORM_APLITE
 
 // clear the entire app back to nothing
-static void do_clear(void){
-    if (s_mode == MODE_CTRL) {
-        s_mode = MODE_HOURS;
-    }
-    vibe_for_start_stop();
-    stopwatch_clear();
-    update_alarm_duration();
-    update_elapsed();
-    update_mode();
-    update_action_bar();
-}
-
 #if PBL_TOUCH
 // set the duration straight to a new value
-static void do_set(time_t duration) {
-    vibe_for_start_stop();
-    s_state.alarm_duration = duration;
-    stopwatch_resume();
-    stopwatch_tick();
-    update_alarm_duration();
-
-    // Update elapsed for TouchTimerMode_Clear
-    update_elapsed();  // note this calls update_remaining()
-}
 #endif // PBL_TOUCH
 
 // restart the timer, keeping the alarm duration
-static void do_restart(void){
-    vibe_for_start_stop();
-    stopwatch_restart();
-    update_elapsed();
-    update_alarm_time();
-}
-
 // pause/unpause the timer
 static void do_toggle_pause(void) {
     vibe_for_start_stop();
@@ -805,13 +681,6 @@ static void do_toggle_pause(void) {
 }
 
 // modify the alarm duration
-static void do_increment(bool add, ClickRecognizerRef recognizer) {
-    increment_alarm((IncrementMode)s_mode, add, !click_recognizer_is_repeating(recognizer));
-    stopwatch_tick();
-    update_alarm_duration();
-    update_remaining();
-}
-
 // return true if the alarm was cleared
 static bool do_alarm_clear(void) {
     const bool cleared = alarm_clear();
@@ -820,19 +689,6 @@ static bool do_alarm_clear(void) {
         update_status_icon();
     }
     return cleared;
-}
-
-static void exit_handler(void* context) {
-    window_stack_pop(true);
-}
-
-static void do_exit(bool save) {
-    s_save = save;
-    if (s_state.is_counting && !save) {
-        vibe_for_start_stop();
-    }
-    animate_exit_screen(save, true);
-    app_timer_register(200, exit_handler, NULL);
 }
 
 static void tick_handler(struct tm *tick_time, TimeUnits units_changed) {
@@ -853,10 +709,6 @@ static void tick_handler(struct tm *tick_time, TimeUnits units_changed) {
         update_alarm_time();
     }
 
-#if PBL_COLOR
-    // swap between two bell rotations
-    s_icon_bell = (s_icon_bell == s_icon_bell_l) ? s_icon_bell_r : s_icon_bell_l;
-#endif // PBL_COLOR
 }
 
 static void update_tick_subscription(TimeUnits new_update_rate);
@@ -1032,7 +884,6 @@ static void update_tick_subscription(TimeUnits new_update_rate) {
     }
 }
 
-// TAP_TIMER_SIMPLE_UI_PATCH_V2
 // Modified by Maru Kitano, 2026.
 // Simplified interaction model: touch selects, Select starts, Back exits.
 static void simple_timer_reset_to_idle(void) {
@@ -1117,7 +968,6 @@ static void simple_timer_exit(void) {
     window_stack_pop(true);
 }
 
-
 #if PBL_TOUCH
 
 // handle new touch time selection
@@ -1194,7 +1044,6 @@ static void accel_tap_handler(AccelAxisType axis, int32_t direction) {
     enable_touch();
 }
 
-
 #if PBL_TOUCH
 static void run_screen_add_minute_callback(void) {
     if (!touch_running_screen_active()
@@ -1218,7 +1067,6 @@ static void run_screen_add_minute_callback(void) {
     update_tick_subscription(SECOND_UNIT);
 }
 
-
 static void run_screen_delete_callback(void) {
     if (!touch_running_screen_active()
         || s_state.is_counting
@@ -1231,7 +1079,6 @@ static void run_screen_delete_callback(void) {
     update_tick_subscription(SECOND_UNIT);
 }
 #endif // PBL_TOUCH
-
 
 static void up_click_handler(
     ClickRecognizerRef recognizer,
@@ -1279,21 +1126,6 @@ static void down_click_handler(
     enable_touch();
 }
 
-static void down_click_handler_ctrl_short(ClickRecognizerRef recognizer, void *context) {
-    ASSERT(s_mode == MODE_CTRL);
-    if (alarm_is_pulsing()) {
-        do_exit(false);
-    } else {
-        do_exit(true);
-    }
-}
-
-static void down_click_handler_ctrl_long(ClickRecognizerRef recognizer, void *context) {
-    ASSERT(s_mode == MODE_CTRL);
-    do_exit(false);
-}
-
-
 #if PBL_TOUCH
 static void run_screen_pause_toggle_callback(void) {
     // The alarm may begin during the short marker animation.
@@ -1307,8 +1139,6 @@ static void run_screen_pause_toggle_callback(void) {
     update_tick_subscription(SECOND_UNIT);
 }
 #endif
-
-
 
 static void select_click_handler(ClickRecognizerRef recognizer, void *context) {
     UNUSED(recognizer);
@@ -1327,9 +1157,7 @@ static void select_click_handler(ClickRecognizerRef recognizer, void *context) {
     enable_touch();
 }
 
-
 static bool s_select_run_screen_press;
-
 
 static void select_raw_down_handler(
     ClickRecognizerRef recognizer,
@@ -1351,7 +1179,6 @@ static void select_raw_down_handler(
     s_select_run_screen_press = false;
 }
 
-
 static void select_raw_up_handler(
     ClickRecognizerRef recognizer,
     void *context
@@ -1369,19 +1196,6 @@ static void select_raw_up_handler(
 #endif
 
     select_click_handler(NULL, NULL);
-}
-
-
-static void select_long_click_handler(ClickRecognizerRef recognizer, void *context) {
-    TRACE("select_long_click_handler");
-    if (!do_alarm_clear()) {
-        s_mode = MODE_CTRL;
-        update_mode();
-        do_toggle_pause();
-        update_action_bar();
-    }
-    update_tick_subscription(SECOND_UNIT);
-    enable_touch();
 }
 
 static void back_click_handler(ClickRecognizerRef recognizer, void *context) {
@@ -1413,7 +1227,6 @@ static void back_release_click_handler(
     back_click_handler(NULL, NULL);
 }
 
-
 static void click_config_provider(void *context) {
     UNUSED(context);
 #if PBL_TOUCH
@@ -1436,44 +1249,15 @@ static void click_config_provider(void *context) {
     );
 }
 
-
 /******************************************************************************
  Graphics
 ******************************************************************************/
 
 #if PBL_COLOR
-static void draw_bell_background(GPoint centre, GContext *ctx) {
-    const GRect bounds = gbitmap_get_bounds(s_icon_bell);
-    const GRect frame = {
-        .origin = {centre.x - (bounds.size.w / 2),
-                   centre.y - (bounds.size.h / 2)},
-        .size = bounds.size
-    };
-    graphics_context_set_compositing_mode(ctx, GCompOpSet); // enable transparency
-    graphics_draw_bitmap_in_rect(ctx, s_icon_bell, frame);
-}
-
-static void draw_pause_background(GPoint centre, int16_t central_panel_radius, GContext *ctx) {
-    // the size of one pause rect
-    const GSize pause_size = {central_panel_radius / 2.5, central_panel_radius * 1.5};
-    graphics_context_set_fill_color(ctx, config_get()->bgColorImage);
-    GPoint pause_origin = {centre.x - (pause_size.w * 1.5), centre.y - (pause_size.h / 2)};
-    graphics_fill_rect(ctx, (GRect){.origin=pause_origin, .size=pause_size}, 2, GCornersAll);
-    pause_origin.x += pause_size.w * 2;
-    graphics_fill_rect(ctx, (GRect){.origin=pause_origin, .size=pause_size}, 2, GCornersAll);
-}
 #endif // PBL_COLOR
 
 #if PBL_ROUND
 // Draw a custom rounded StatusBar background
-static void draw_round_status_bar(GRect bounds, GContext *ctx) {
-    const uint16_t status_bg_radius = bounds.size.h;
-    const GPoint status_bg_point = GPoint(
-        bounds.size.w / 2,
-        -status_bg_radius + STATUS_BAR_LAYER_HEIGHT
-    );
-    graphics_color_circle(ctx, status_bg_point, status_bg_radius, config_get()->statusBarBgColor);
-}
 #endif // PBL_ROUND
 
 // Render background elements, including the progress ring
@@ -1499,24 +1283,10 @@ static void set_bitmap_colors(const Config* config) {
     const size_t action_fill_index = 3;
     const size_t action_line_index = 0;
     const GColor action_fill_color = config->actionBarIconColor;
-    gbitmap_set_color(s_icon_refresh, action_fill_index, action_fill_color);
-    gbitmap_set_color(s_icon_pause,   action_fill_index, action_fill_color);
     gbitmap_set_color(s_icon_start,   action_fill_index, action_fill_color);
-    gbitmap_set_color(s_icon_delete,  action_fill_index, action_fill_color);
-    gbitmap_set_color(s_icon_save,    action_fill_index, action_fill_color);
-    gbitmap_set_color(s_icon_right,   action_fill_index, action_fill_color);
-    gbitmap_set_color(s_icon_up,      action_fill_index, action_fill_color);
-    gbitmap_set_color(s_icon_down,    action_fill_index, action_fill_color);
     gbitmap_set_color(s_icon_tick,    action_fill_index, action_fill_color);
     const GColor action_line_color = config->roundIconOutline ? config->actionBarBgColor : GColorClear;
-    gbitmap_set_color(s_icon_refresh, action_line_index, action_line_color);
-    gbitmap_set_color(s_icon_pause,   action_line_index, action_line_color);
     gbitmap_set_color(s_icon_start,   action_line_index, action_line_color);
-    gbitmap_set_color(s_icon_delete,  action_line_index, action_line_color);
-    gbitmap_set_color(s_icon_save,    action_line_index, action_line_color);
-    gbitmap_set_color(s_icon_right,   action_line_index, action_line_color);
-    gbitmap_set_color(s_icon_up,      action_line_index, action_line_color);
-    gbitmap_set_color(s_icon_down,    action_line_index, action_line_color);
     gbitmap_set_color(s_icon_tick,    action_line_index, action_line_color);
 
     // Other bitmaps' palettes are {0: Clear, 1: White}
@@ -1528,12 +1298,6 @@ static void set_bitmap_colors(const Config* config) {
     gbitmap_set_color(s_status_icon_alert, color_index, text_color);
     gbitmap_set_color(s_status_icon_pause, color_index, text_color);
 
-#if PBL_COLOR
-    // draw_bell_background
-    const GColor bell_color = config->bgColorImage;
-    gbitmap_set_color(s_icon_bell_l, color_index, bell_color);
-    gbitmap_set_color(s_icon_bell_r, color_index, bell_color);
-#endif // PBL_COLOR
 }
 
 // Handle new app config submission
@@ -1546,10 +1310,6 @@ static void new_config_handler(const Config* config) {
     action_bar_layer_set_background_color(s_action_bar, config->actionBarBgColor);
 #endif // PBL_RECT
 
-    // We draw the StatusBar's background manually on round displays
-    const GColor status_bar_bg_color = PBL_IF_ROUND_ELSE(GColorClear, config->statusBarBgColor);
-    status_bar_layer_set_colors(s_status_bar, status_bar_bg_color, config->statusBarTextColor);
-
 #if PBL_TOUCH
     touch_enable(config->enableTouch);
 #endif // PBL_TOUCH
@@ -1558,7 +1318,6 @@ static void new_config_handler(const Config* config) {
 
     layer_mark_dirty(window_get_root_layer(s_main_window));
 }
-
 
 /******************************************************************************
  Main
@@ -1680,7 +1439,6 @@ static void create_text_layout(Layer* parent) {
 
     #undef SMALL_TEXT
 
-    // TAP_TIMER_MINIMAL_BACKGROUND_V1
     // Hide all legacy timer text and status graphics.
     layer_set_hidden(text_layer_get_layer(s_text_layer_edit_indicator), true);
     layer_set_hidden(text_layer_get_layer(s_text_layer_alarm_duration), true);
@@ -1703,11 +1461,6 @@ static void main_window_load(Window *window) {
     Layer *window_layer = window_get_root_layer(window);
 
     // background
-#if PBL_COLOR
-    s_icon_bell_l = gbitmap_create_with_resource(RESOURCE_ID_BELL_L);
-    s_icon_bell_r = gbitmap_create_with_resource(RESOURCE_ID_BELL_R);
-    s_icon_bell = s_icon_bell_l;
-#endif // PBL_COLOR
     s_bg_layer = layer_create(layer_get_bounds(window_layer));
     layer_set_update_proc(s_bg_layer, render_background);
     layer_add_child(window_layer, s_bg_layer);
@@ -1722,27 +1475,13 @@ static void main_window_load(Window *window) {
 #endif // PBL_ROUND
     action_bar_layer_add_to_window(s_action_bar, window);
     action_bar_layer_set_click_config_provider(s_action_bar, click_config_provider);
-    s_icon_up = gbitmap_create_with_resource(RESOURCE_ID_ICON_UP);
-    s_icon_right = gbitmap_create_with_resource(RESOURCE_ID_ICON_RIGHT);
-    s_icon_down = gbitmap_create_with_resource(RESOURCE_ID_ICON_DOWN);
-    s_icon_refresh = gbitmap_create_with_resource(RESOURCE_ID_ICON_REWIND);
     s_icon_start = gbitmap_create_with_resource(RESOURCE_ID_ICON_START);
-    s_icon_pause = gbitmap_create_with_resource(RESOURCE_ID_ICON_PAUSE);
-    s_icon_delete = gbitmap_create_with_resource(RESOURCE_ID_ICON_DELETE);
-    s_icon_save = gbitmap_create_with_resource(RESOURCE_ID_ICON_SAVE);
     s_icon_tick = gbitmap_create_with_resource(RESOURCE_ID_ICON_TICK);
-
-    // status bar
-    s_status_bar = status_bar_layer_create();
-    // System clock hidden; keep the layer allocated for safe cleanup.
 
     // touch selector
 #if PBL_TOUCH
     touch_create(window_layer, &handle_touch_selection, &handle_touch_event, touch_auto_start_wrapper);
 #endif // PBL_TOUCH
-
-    // exit screen
-    create_exit_screen(window_layer);
 
     // business logic
     s_initialising = true;
@@ -1773,7 +1512,6 @@ static void main_window_load(Window *window) {
         s_state.is_alarm_done = false;
         s_state.alarm_wakeup_id = E_DOES_NOT_EXIST;
     }
-
 
 #if PBL_TOUCH
     const bool restore_run_screen =
@@ -1826,10 +1564,6 @@ static void main_window_unload(Window *window) {
     TRACE("main_window_unload");
 
     // background
-#if PBL_COLOR
-    gbitmap_destroy(s_icon_bell_l);
-    gbitmap_destroy(s_icon_bell_r);
-#endif // PBL_COLOR
     layer_destroy(s_bg_layer);
 
     // status icon
@@ -1849,28 +1583,13 @@ static void main_window_unload(Window *window) {
 
     // action bar
     action_bar_layer_destroy(s_action_bar);
-    gbitmap_destroy(s_icon_up);
-    gbitmap_destroy(s_icon_right);
-    gbitmap_destroy(s_icon_down);
-    gbitmap_destroy(s_icon_refresh);
     gbitmap_destroy(s_icon_start);
-    gbitmap_destroy(s_icon_pause);
-    gbitmap_destroy(s_icon_delete);
-    gbitmap_destroy(s_icon_save);
     gbitmap_destroy(s_icon_tick);
-
-    // status bar
-    status_bar_layer_destroy(s_status_bar);
 
     // touch selector
 #if PBL_TOUCH
     touch_destroy();
 #endif // PBL_TOUCH
-
-    // exit screen
-    bitmap_layer_destroy(s_exit_layer);
-    gbitmap_destroy(s_icon_trash);
-    gbitmap_destroy(s_icon_save_large);
 
     // services
     tick_timer_service_unsubscribe();
