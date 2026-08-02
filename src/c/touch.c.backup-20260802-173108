@@ -1,5 +1,31 @@
 // Copyright (c) 2026 Andrew Howe. All rights reserved. See LICENSE (GPLv3.0).
-// TAP_TIMER_TOUCH_UI_CLEAN_V1
+// TAP_TIMER_RULER_TOUCH_V1
+// TAP_TIMER_ONE_MINUTE_SCALE_RESTORED_V1
+// TAP_TIMER_CENTER_ARROW_AT_ZERO_V1
+// TAP_TIMER_ARROW_BOUNCE_BACK_V1
+// TAP_TIMER_AUTO_START_FILL_V1
+// TAP_TIMER_RUNNING_SCREEN_V1
+// TAP_TIMER_TWO_DIGIT_CENTISECONDS_V1
+// TAP_TIMER_WAVE_FILL_ANIMATION_V1
+// TAP_TIMER_PAPER_STACK_TOP_V1
+// TAP_TIMER_TOP_ROOF_SHAPE_V1
+// TAP_TIMER_TOP_FILLED_DIAMOND_V1
+// TAP_TIMER_SOLID_DIAMOND_SCANLINES_V1
+// TAP_TIMER_MATCHED_DIAMOND_ANGLE_V1
+// TAP_TIMER_SHARPER_CHEVRONS_V1
+// TAP_TIMER_BEVEL_TOP_DIAMOND_V1
+// TAP_TIMER_TRUE_BEVEL_DIAMOND_V1
+// TAP_TIMER_RESTORE_FULL_DIAMOND_V1
+// TAP_TIMER_DIAMOND_EXPAND_TRANSITION_V1
+// TAP_TIMER_CORNER_EXPAND_TRANSITION_V1
+// TAP_TIMER_TOP_SLIDE_V_EDGE_TRANSITION_V1
+// TAP_TIMER_WHITE_RUNNING_SCREEN_NO_DIAMOND_V1
+// TAP_TIMER_DEBUG_HOLD_FINAL_STACK_V1
+// TAP_TIMER_RELIABLE_FILL_START_V1
+// TAP_TIMER_EARLY_BOUNCE_SETTLE_V1
+// TAP_TIMER_NO_FINAL_BOUNCE_SNAP_V1
+// TAP_TIMER_SNAP_RULER_TO_MINUTE_V1
+// TAP_TIMER_AUTO_START_FORWARD_DECL_FIX_V1
 // Vertical timer-ruler interaction by Maru Kitano, 2026.
 
 #include "touch.h"
@@ -154,6 +180,7 @@ static void finish_arrow_bounce(void) {
     s_arrow_drag_offset = 0;
     s_arrow_bounce_velocity = 0;
     s_arrow_bounce_ticks = 0;
+    s_arrow_bounce_ticks = 0;
     s_arrow_bounce_timer = NULL;
 
     if (s_layer != NULL) {
@@ -254,6 +281,7 @@ static void cancel_arrow_fill(void) {
     }
 
     s_arrow_fill_count = 0;
+    s_arrow_fill_wave_index = -1;
     s_arrow_fill_wave_index = -1;
 
     if (s_layer != NULL) {
@@ -404,7 +432,87 @@ static void running_frame_tick(void *context) {
 }
 
 
-static void draw_top_slide_transition(
+static int16_t lerp_i16(
+    int16_t a,
+    int16_t b,
+    uint8_t step,
+    uint8_t max_step
+) {
+    return a + (int16_t)(((int32_t)(b - a) * step) / max_step);
+}
+
+
+static void fill_convex_quad(
+    GContext *ctx,
+    GPoint p0,
+    GPoint p1,
+    GPoint p2,
+    GPoint p3,
+    GColor color
+) {
+    GPoint points[4] = { p0, p1, p2, p3 };
+
+    int16_t min_y = points[0].y;
+    int16_t max_y = points[0].y;
+
+    for (int i = 1; i < 4; ++i) {
+        if (points[i].y < min_y) {
+            min_y = points[i].y;
+        }
+        if (points[i].y > max_y) {
+            max_y = points[i].y;
+        }
+    }
+
+    graphics_context_set_stroke_color(ctx, color);
+    graphics_context_set_stroke_width(ctx, 1);
+
+    for (int16_t y = min_y; y <= max_y; ++y) {
+        int16_t xs[8];
+        int count = 0;
+
+        for (int i = 0; i < 4; ++i) {
+            GPoint a = points[i];
+            GPoint b = points[(i + 1) % 4];
+
+            if (a.y == b.y) {
+                continue;
+            }
+
+            const int16_t edge_min_y = a.y < b.y ? a.y : b.y;
+            const int16_t edge_max_y = a.y > b.y ? a.y : b.y;
+
+            if (y < edge_min_y || y >= edge_max_y) {
+                continue;
+            }
+
+            const int32_t dy = (int32_t)(b.y - a.y);
+            const int32_t dx = (int32_t)(b.x - a.x);
+            const int32_t y_off = (int32_t)(y - a.y);
+
+            xs[count++] = (int16_t)(a.x + (y_off * dx) / dy);
+        }
+
+        if (count < 2) {
+            continue;
+        }
+
+        if (xs[0] > xs[1]) {
+            const int16_t tmp = xs[0];
+            xs[0] = xs[1];
+            xs[1] = tmp;
+        }
+
+        graphics_draw_line(
+            ctx,
+            GPoint(xs[0], y),
+            GPoint(xs[1], y)
+        );
+    }
+}
+
+
+static void draw_expanding_transition_diamond(
     GContext *ctx,
     GRect bounds
 ) {
@@ -424,8 +532,15 @@ static void draw_top_slide_transition(
     const int16_t h = bounds.size.h;
     const int16_t center_x = w / 2;
 
-    const int16_t screen_half_width = MAX(center_x, 1);
-    const int16_t reference_arrow_half_width = MAX(w / 6, 1);
+    int16_t screen_half_width = center_x;
+    if (screen_half_width < 1) {
+        screen_half_width = 1;
+    }
+
+    int16_t reference_arrow_half_width = w / 6;
+    if (reference_arrow_half_width < 1) {
+        reference_arrow_half_width = 1;
+    }
 
     int16_t v_depth =
         (screen_half_width * ARROW_HALF_HEIGHT) /
@@ -444,7 +559,10 @@ static void draw_top_slide_transition(
     graphics_context_set_stroke_width(ctx, 1);
 
     for (int16_t x = 0; x < w; ++x) {
-        const int16_t dx = ABS(x - center_x);
+        int16_t dx = x - center_x;
+        if (dx < 0) {
+            dx = -dx;
+        }
 
         int16_t edge_y =
             apex_y -
@@ -479,7 +597,8 @@ static void running_transition_tick(void *context) {
         s_running_transition = false;
         layer_mark_dirty(s_layer);
 
-        // Start the live countdown after the top-slide transition.
+        // Only start the live countdown after the white-diamond
+        // expansion transition has fully finished.
         s_running_frame_timer = app_timer_register(
             RUNNING_FRAME_MS,
             running_frame_tick,
@@ -557,7 +676,7 @@ static void draw_running_countdown(Layer *layer, GContext *ctx) {
     graphics_fill_rect(ctx, bounds, 0, GCornerNone);
 
     if (s_running_transition) {
-        draw_top_slide_transition(ctx, bounds);
+        draw_expanding_transition_diamond(ctx, bounds);
         return;
     }
 
