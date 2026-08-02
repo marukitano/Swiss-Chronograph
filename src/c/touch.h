@@ -23,6 +23,7 @@ void touch_restore_running(
 );
 bool touch_running_screen_active(void);
 void touch_set_paused(bool paused);
+void touch_add_running_seconds(uint32_t seconds);
 bool touch_run_action_press(
     TouchRunActionCallback callback
 );

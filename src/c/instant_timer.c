@@ -1194,21 +1194,88 @@ static void accel_tap_handler(AccelAxisType axis, int32_t direction) {
     enable_touch();
 }
 
-static void up_click_handler(ClickRecognizerRef recognizer, void *context) {
+
+#if PBL_TOUCH
+static void run_screen_add_minute_callback(void) {
+    if (!touch_running_screen_active()
+        || s_state.is_counting
+        || alarm_is_pulsing()) {
+        return;
+    }
+
+    if (s_state.alarm_duration
+        > TIME_MAX - SECONDS_PER_MINUTE) {
+        return;
+    }
+
+    vibe_for_start_stop();
+    s_state.alarm_duration += SECONDS_PER_MINUTE;
+    touch_add_running_seconds(SECONDS_PER_MINUTE);
+
+    update_alarm_duration();
+    update_elapsed();
+    update_action_bar();
+    update_tick_subscription(SECOND_UNIT);
+}
+
+
+static void run_screen_delete_callback(void) {
+    if (!touch_running_screen_active()
+        || s_state.is_counting
+        || alarm_is_pulsing()) {
+        return;
+    }
+
+    vibe_for_start_stop();
+    simple_timer_reset_to_idle();
+    update_tick_subscription(SECOND_UNIT);
+}
+#endif // PBL_TOUCH
+
+
+static void up_click_handler(
+    ClickRecognizerRef recognizer,
+    void *context
+) {
     UNUSED(recognizer);
     UNUSED(context);
+
 #if PBL_TOUCH
+    if (touch_running_screen_active()) {
+        if (!s_state.is_counting) {
+            run_screen_add_minute_callback();
+        }
+
+        enable_touch();
+        return;
+    }
+
     touch_adjust_minutes(1);
 #endif
+
     enable_touch();
 }
 
-static void down_click_handler(ClickRecognizerRef recognizer, void *context) {
+static void down_click_handler(
+    ClickRecognizerRef recognizer,
+    void *context
+) {
     UNUSED(recognizer);
     UNUSED(context);
+
 #if PBL_TOUCH
+    if (touch_running_screen_active()) {
+        if (!s_state.is_counting) {
+            run_screen_delete_callback();
+        }
+
+        enable_touch();
+        return;
+    }
+
     touch_adjust_minutes(-1);
 #endif
+
     enable_touch();
 }
 

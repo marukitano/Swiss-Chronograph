@@ -42,6 +42,13 @@
 #define RUN_MINIMIZE_CENTER_Y 36
 #define RUN_MINIMIZE_ANIM_MS 55
 #define RUN_MINIMIZE_EXIT_DELAY_MS 90
+#define RUN_PAUSE_CONTROLS_ANIM_MS 42
+#define RUN_PAUSE_CONTROLS_HIDDEN_OFFSET 30
+#define RUN_PAUSE_CONTROL_TOP_CENTER_Y 36
+#define RUN_PAUSE_CONTROL_BOTTOM_MARGIN 36
+#define RUN_CONTROLS_ENTRY_DELAY_MS 500
+#define RUN_CONTROLS_BOUNCE_MS 42
+#define RUN_CONTROLS_HIDDEN_OFFSET 30
 
 static Layer *s_layer;
 static TouchSelectionCallback s_callback;
@@ -56,6 +63,10 @@ static int16_t s_selected_minutes;
 
 static AppTimer *s_touch_disable_timer;
 static AppTimer *s_arrow_anim_timer;
+// TAP_TIMER_DELAYED_ARROW_ANIMATION_V2
+static bool s_arrow_animation_started;
+static void start_arrow_animation(void);
+static void stop_arrow_animation(void);
 static uint8_t s_arrow_anim_phase;
 static AppTimer *s_arrow_bounce_timer;
 static int16_t s_arrow_drag_offset;
@@ -81,6 +92,36 @@ static uint8_t s_minimize_action_draw_width = RUN_ACTION_MARKER_WIDTH;
 static bool s_minimize_action_button_down;
 static bool s_minimize_action_pressed;
 static TouchRunActionCallback s_minimize_action_release_callback;
+// TAP_TIMER_PAUSE_SIDE_CONTROLS_V1
+static AppTimer *s_pause_controls_anim_timer;
+static uint8_t s_pause_controls_anim_step;
+static int16_t s_pause_controls_offset =
+    RUN_PAUSE_CONTROLS_HIDDEN_OFFSET;
+static bool s_pause_controls_visible;
+// TAP_TIMER_RUN_CONTROLS_ENTRY_V1
+static AppTimer *s_run_controls_entry_timer;
+static uint8_t s_run_controls_entry_step;
+static int16_t s_run_controls_entry_offset =
+    RUN_CONTROLS_HIDDEN_OFFSET;
+static bool s_run_controls_entry_visible;
+static const int8_t s_run_controls_entry_offsets[] = {
+    RUN_CONTROLS_HIDDEN_OFFSET,
+    18,
+    8,
+    -3,
+    2,
+    -1,
+    0
+};
+static const int8_t s_pause_controls_offsets[] = {
+    RUN_PAUSE_CONTROLS_HIDDEN_OFFSET,
+    18,
+    8,
+    -3,
+    2,
+    -1,
+    0
+};
 static AppTimer *s_running_frame_timer;
 static AppTimer *s_running_transition_timer;
 
@@ -121,6 +162,10 @@ void touch_adjust_minutes(int delta) {
         return;
     }
 
+    if (delta != 0) {
+        start_arrow_animation();
+    }
+
     set_minutes(s_selected_minutes + delta, true);
 }
 
@@ -130,7 +175,8 @@ static void arrow_anim_tick(void *context) {
 
     s_arrow_anim_phase = (s_arrow_anim_phase + 1) % ARROW_COUNT;
 
-    if (s_layer != NULL) {
+    if (s_arrow_animation_started
+        && s_layer != NULL) {
         layer_mark_dirty(s_layer);
         s_arrow_anim_timer = app_timer_register(
             ARROW_ANIM_MS,
@@ -141,6 +187,43 @@ static void arrow_anim_tick(void *context) {
         s_arrow_anim_timer = NULL;
     }
 }
+
+
+static void stop_arrow_animation(void) {
+    if (s_arrow_anim_timer != NULL) {
+        app_timer_cancel(s_arrow_anim_timer);
+        s_arrow_anim_timer = NULL;
+    }
+
+    s_arrow_animation_started = false;
+    s_arrow_anim_phase = 0;
+
+    if (s_layer != NULL) {
+        layer_mark_dirty(s_layer);
+    }
+}
+
+
+static void start_arrow_animation(void) {
+    if (s_arrow_animation_started || s_layer == NULL) {
+        return;
+    }
+
+    s_arrow_animation_started = true;
+    s_arrow_anim_phase = 0;
+    layer_mark_dirty(s_layer);
+
+    s_arrow_anim_timer = app_timer_register(
+        ARROW_ANIM_MS,
+        arrow_anim_tick,
+        NULL
+    );
+
+    if (s_arrow_anim_timer == NULL) {
+        s_arrow_animation_started = false;
+    }
+}
+
 
 
 static void draw_chevron_down(
@@ -373,6 +456,11 @@ static GColor arrow_color_for_index(int index) {
         return dim;
     }
 
+    if (!s_arrow_animation_started) {
+        // Idle selector: gray until the start countdown begins.
+        return dim;
+    }
+
     if (index == s_arrow_anim_phase) {
         return config_get()->textColor;
     }
@@ -596,6 +684,190 @@ static void minimize_action_animation_tick(void *context) {
 }
 
 
+static void hide_pause_controls(void) {
+    if (s_pause_controls_anim_timer != NULL) {
+        app_timer_cancel(s_pause_controls_anim_timer);
+        s_pause_controls_anim_timer = NULL;
+    }
+
+    s_pause_controls_anim_step = 0;
+    s_pause_controls_offset =
+        RUN_PAUSE_CONTROLS_HIDDEN_OFFSET;
+    s_pause_controls_visible = false;
+
+    if (s_layer != NULL) {
+        layer_mark_dirty(s_layer);
+    }
+}
+
+
+static void pause_controls_animation_tick(void *context) {
+    UNUSED(context);
+    s_pause_controls_anim_timer = NULL;
+
+    if (!s_running_screen
+        || !s_running_paused
+        || s_layer == NULL) {
+        hide_pause_controls();
+        return;
+    }
+
+    if (s_pause_controls_anim_step
+        >= ARRAY_LENGTH(s_pause_controls_offsets)) {
+        s_pause_controls_offset = 0;
+        layer_mark_dirty(s_layer);
+        return;
+    }
+
+    s_pause_controls_offset =
+        s_pause_controls_offsets[
+            s_pause_controls_anim_step
+        ];
+    s_pause_controls_anim_step++;
+
+    layer_mark_dirty(s_layer);
+
+    if (s_pause_controls_anim_step
+        < ARRAY_LENGTH(s_pause_controls_offsets)) {
+        s_pause_controls_anim_timer = app_timer_register(
+            RUN_PAUSE_CONTROLS_ANIM_MS,
+            pause_controls_animation_tick,
+            NULL
+        );
+    } else {
+        s_pause_controls_offset = 0;
+        layer_mark_dirty(s_layer);
+    }
+}
+
+
+static void show_pause_controls(void) {
+    if (!s_running_screen
+        || !s_running_paused
+        || s_layer == NULL) {
+        return;
+    }
+
+    if (s_pause_controls_anim_timer != NULL) {
+        app_timer_cancel(s_pause_controls_anim_timer);
+        s_pause_controls_anim_timer = NULL;
+    }
+
+    s_pause_controls_visible = true;
+    s_pause_controls_anim_step = 1;
+    s_pause_controls_offset =
+        s_pause_controls_offsets[0];
+
+    layer_mark_dirty(s_layer);
+
+    s_pause_controls_anim_timer = app_timer_register(
+        RUN_PAUSE_CONTROLS_ANIM_MS,
+        pause_controls_animation_tick,
+        NULL
+    );
+
+    if (s_pause_controls_anim_timer == NULL) {
+        s_pause_controls_offset = 0;
+        layer_mark_dirty(s_layer);
+    }
+}
+
+
+static void hide_run_controls(void) {
+    if (s_run_controls_entry_timer != NULL) {
+        app_timer_cancel(s_run_controls_entry_timer);
+        s_run_controls_entry_timer = NULL;
+    }
+
+    s_run_controls_entry_step = 0;
+    s_run_controls_entry_offset =
+        RUN_CONTROLS_HIDDEN_OFFSET;
+    s_run_controls_entry_visible = false;
+
+    if (s_layer != NULL) {
+        layer_mark_dirty(s_layer);
+    }
+}
+
+
+static void run_controls_entry_tick(void *context) {
+    UNUSED(context);
+    s_run_controls_entry_timer = NULL;
+
+    if (!s_running_screen || s_layer == NULL) {
+        hide_run_controls();
+        return;
+    }
+
+    if (!s_run_controls_entry_visible) {
+        // The first callback is the 500 ms delay.
+        s_run_controls_entry_visible = true;
+        s_run_controls_entry_step = 1;
+        s_run_controls_entry_offset =
+            s_run_controls_entry_offsets[0];
+
+        layer_mark_dirty(s_layer);
+
+        s_run_controls_entry_timer = app_timer_register(
+            RUN_CONTROLS_BOUNCE_MS,
+            run_controls_entry_tick,
+            NULL
+        );
+        return;
+    }
+
+    if (s_run_controls_entry_step
+        >= ARRAY_LENGTH(s_run_controls_entry_offsets)) {
+        s_run_controls_entry_offset = 0;
+        layer_mark_dirty(s_layer);
+        return;
+    }
+
+    s_run_controls_entry_offset =
+        s_run_controls_entry_offsets[
+            s_run_controls_entry_step
+        ];
+    s_run_controls_entry_step++;
+
+    layer_mark_dirty(s_layer);
+
+    if (s_run_controls_entry_step
+        < ARRAY_LENGTH(s_run_controls_entry_offsets)) {
+        s_run_controls_entry_timer = app_timer_register(
+            RUN_CONTROLS_BOUNCE_MS,
+            run_controls_entry_tick,
+            NULL
+        );
+    } else {
+        s_run_controls_entry_offset = 0;
+        layer_mark_dirty(s_layer);
+    }
+}
+
+
+static void schedule_run_controls_entry(void) {
+    hide_run_controls();
+
+    if (!s_running_screen || s_layer == NULL) {
+        return;
+    }
+
+    s_run_controls_entry_timer = app_timer_register(
+        RUN_CONTROLS_ENTRY_DELAY_MS,
+        run_controls_entry_tick,
+        NULL
+    );
+
+    if (s_run_controls_entry_timer == NULL) {
+        s_run_controls_entry_visible = true;
+        s_run_controls_entry_offset = 0;
+        layer_mark_dirty(s_layer);
+    }
+}
+
+
+
+
 
 
 static void running_frame_tick(void *context) {
@@ -700,6 +972,8 @@ static void running_transition_tick(void *context) {
                 NULL
             );
         }
+
+        schedule_run_controls_entry();
         return;
     }
 
@@ -720,8 +994,11 @@ void touch_start_running(uint32_t duration_seconds) {
     }
 
     cancel_arrow_fill();
+    stop_arrow_animation();
     cancel_run_action_animation();
     cancel_minimize_action_animation();
+    hide_pause_controls();
+    hide_run_controls();
 
     if (s_arrow_bounce_timer != NULL) {
         app_timer_cancel(s_arrow_bounce_timer);
@@ -763,6 +1040,7 @@ void touch_restore_running(
     }
 
     cancel_arrow_fill();
+    stop_arrow_animation();
     cancel_run_action_animation();
     cancel_minimize_action_animation();
 
@@ -785,12 +1063,19 @@ void touch_restore_running(
     s_running_paused_remaining_ms =
         paused ? s_running_duration_ms : 0;
 
+    if (paused) {
+        show_pause_controls();
+    } else {
+        hide_pause_controls();
+    }
+
     if (s_touch_is_enabled) {
         touch_service_unsubscribe();
         s_touch_is_enabled = false;
     }
 
     cancel_running_timers();
+    schedule_run_controls_entry();
 
     s_running_frame_timer = app_timer_register(
         RUNNING_FRAME_MS,
@@ -817,7 +1102,9 @@ void touch_set_paused(bool paused) {
         s_running_paused_remaining_ms = running_remaining_ms();
         s_running_paused = true;
         cancel_running_timers();
+        show_pause_controls();
     } else {
+        hide_pause_controls();
         s_running_duration_ms = s_running_paused_remaining_ms;
         s_running_started_ms = monotonic_ms();
         s_running_paused = false;
@@ -843,6 +1130,32 @@ void touch_set_paused(bool paused) {
         layer_mark_dirty(s_layer);
     }
 }
+
+
+void touch_add_running_seconds(uint32_t seconds) {
+    if (!s_running_screen
+        || !s_running_paused
+        || seconds == 0) {
+        return;
+    }
+
+    const uint32_t added_ms = seconds * 1000U;
+
+    if (s_running_paused_remaining_ms
+        > UINT32_MAX - added_ms) {
+        s_running_paused_remaining_ms = UINT32_MAX;
+    } else {
+        s_running_paused_remaining_ms += added_ms;
+    }
+
+    s_running_duration_ms =
+        s_running_paused_remaining_ms;
+
+    if (s_layer != NULL) {
+        layer_mark_dirty(s_layer);
+    }
+}
+
 
 
 
@@ -981,6 +1294,8 @@ void touch_reset_idle(void) {
     cancel_running_timers();
     cancel_run_action_animation();
     cancel_minimize_action_animation();
+    hide_pause_controls();
+    hide_run_controls();
 
     if (s_arrow_bounce_timer != NULL) {
         app_timer_cancel(s_arrow_bounce_timer);
@@ -988,6 +1303,7 @@ void touch_reset_idle(void) {
     }
 
     cancel_arrow_fill();
+    stop_arrow_animation();
 
     // Leave running mode first. The parent timer logic may ignore selection
     // callbacks while the countdown or alarm is still considered active.
@@ -1018,36 +1334,47 @@ static void draw_running_action_bar(
     GContext *ctx,
     GRect bounds
 ) {
+    if (!s_run_controls_entry_visible) {
+        return;
+    }
+
     const int16_t center_y = bounds.size.h / 2;
+    const int16_t edge_x =
+        bounds.size.w + s_run_controls_entry_offset;
+
+    // Stretch the black bar back to the screen edge while it bounces in.
+    const int16_t extra_width =
+        s_run_controls_entry_offset > 0
+            ? s_run_controls_entry_offset
+            : 0;
+    const int16_t marker_width =
+        s_run_action_draw_width + extra_width;
     const int16_t marker_x =
-        bounds.size.w - s_run_action_draw_width;
+        bounds.size.w - marker_width;
     const int16_t marker_y =
         center_y - (RUN_ACTION_MARKER_HEIGHT / 2);
 
-    // Small visual marker aligned with the physical middle button.
     graphics_context_set_fill_color(ctx, GColorBlack);
     graphics_fill_rect(
         ctx,
         GRect(
             marker_x,
             marker_y,
-            s_run_action_draw_width,
+            marker_width,
             RUN_ACTION_MARKER_HEIGHT
         ),
         5,
         GCornersLeft
     );
 
-    // Keep the existing play/pause shape directly beside the marker.
     const int16_t center_x =
-        bounds.size.w - RUN_ACTION_MARKER_WIDTH - 10;
+        edge_x - RUN_ACTION_MARKER_WIDTH - 10;
 
     graphics_context_set_fill_color(ctx, GColorBlack);
     graphics_context_set_stroke_color(ctx, GColorBlack);
     graphics_context_set_stroke_width(ctx, 1);
 
     if (s_running_paused) {
-        // Right-pointing play triangle.
         const int16_t base_x = center_x - 5;
         const int16_t point_x = center_x + 5;
 
@@ -1062,7 +1389,6 @@ static void draw_running_action_bar(
             );
         }
     } else {
-        // Pause symbol.
         graphics_fill_rect(
             ctx,
             GRect(center_x - 5, center_y - 7, 3, 14),
@@ -1083,7 +1409,21 @@ static void draw_running_minimize_action(
     GContext *ctx,
     GRect bounds
 ) {
+    if (!s_run_controls_entry_visible) {
+        return;
+    }
+
     const int16_t center_y = RUN_MINIMIZE_CENTER_Y;
+    const int16_t edge_x =
+        -s_run_controls_entry_offset;
+
+    // Mirror the right-side widening so no white gap appears on the left.
+    const int16_t extra_width =
+        s_run_controls_entry_offset > 0
+            ? s_run_controls_entry_offset
+            : 0;
+    const int16_t marker_width =
+        s_minimize_action_draw_width + extra_width;
     const int16_t marker_y =
         center_y - (RUN_ACTION_MARKER_HEIGHT / 2);
 
@@ -1093,16 +1433,15 @@ static void draw_running_minimize_action(
         GRect(
             0,
             marker_y,
-            s_minimize_action_draw_width,
+            marker_width,
             RUN_ACTION_MARKER_HEIGHT
         ),
         5,
         GCornersRight
     );
 
-    // Downward chevron above a short line: minimize, not close.
     const int16_t center_x =
-        RUN_ACTION_MARKER_WIDTH + 10;
+        edge_x + RUN_ACTION_MARKER_WIDTH + 10;
 
     graphics_context_set_stroke_color(ctx, GColorBlack);
     graphics_context_set_stroke_width(ctx, 2);
@@ -1125,6 +1464,100 @@ static void draw_running_minimize_action(
 
     UNUSED(bounds);
 }
+
+
+static void draw_pause_side_control(
+    GContext *ctx,
+    GRect bounds,
+    int16_t center_y,
+    bool add_control
+) {
+    const int16_t edge_x =
+        bounds.size.w + s_pause_controls_offset;
+
+    // While the control is still bouncing in from the right,
+    // stretch the black bar so no white background peeks through.
+    const int16_t extra_width =
+        s_pause_controls_offset > 0
+            ? s_pause_controls_offset
+            : 0;
+    const int16_t marker_width =
+        RUN_ACTION_MARKER_WIDTH + extra_width;
+    const int16_t marker_x =
+        bounds.size.w - marker_width;
+    const int16_t marker_y =
+        center_y - (RUN_ACTION_MARKER_HEIGHT / 2);
+    const int16_t center_x =
+        edge_x - RUN_ACTION_MARKER_WIDTH - 10;
+
+    graphics_context_set_fill_color(ctx, GColorBlack);
+    graphics_fill_rect(
+        ctx,
+        GRect(
+            marker_x,
+            marker_y,
+            marker_width,
+            RUN_ACTION_MARKER_HEIGHT
+        ),
+        5,
+        GCornersLeft
+    );
+
+    graphics_context_set_stroke_color(ctx, GColorBlack);
+    graphics_context_set_stroke_width(ctx, 2);
+
+    if (add_control) {
+        // Plus symbol.
+        graphics_draw_line(
+            ctx,
+            GPoint(center_x - 6, center_y),
+            GPoint(center_x + 6, center_y)
+        );
+        graphics_draw_line(
+            ctx,
+            GPoint(center_x, center_y - 6),
+            GPoint(center_x, center_y + 6)
+        );
+    } else {
+        // Minimal X: delete the paused timer.
+        graphics_context_set_stroke_width(ctx, 3);
+        graphics_draw_line(
+            ctx,
+            GPoint(center_x - 5, center_y - 5),
+            GPoint(center_x + 5, center_y + 5)
+        );
+        graphics_draw_line(
+            ctx,
+            GPoint(center_x + 5, center_y - 5),
+            GPoint(center_x - 5, center_y + 5)
+        );
+    }
+}
+
+
+static void draw_running_pause_controls(
+    GContext *ctx,
+    GRect bounds
+) {
+    if (!s_running_paused
+        || !s_pause_controls_visible) {
+        return;
+    }
+
+    draw_pause_side_control(
+        ctx,
+        bounds,
+        RUN_PAUSE_CONTROL_TOP_CENTER_Y,
+        true
+    );
+    draw_pause_side_control(
+        ctx,
+        bounds,
+        bounds.size.h - RUN_PAUSE_CONTROL_BOTTOM_MARGIN,
+        false
+    );
+}
+
 
 
 
@@ -1174,6 +1607,7 @@ static void draw_running_countdown(Layer *layer, GContext *ctx) {
     );
 
     draw_running_minimize_action(ctx, bounds);
+    draw_running_pause_controls(ctx, bounds);
     draw_running_action_bar(ctx, bounds);
 }
 
@@ -1326,6 +1760,10 @@ static void handle_touch_event(
     switch (event->type) {
     case TouchEvent_Touchdown:
         cancel_arrow_fill();
+
+        // TAP_TIMER_ARROW_START_ON_RELEASE_V1
+        // Keep the selector quiet during the entire drag gesture.
+        stop_arrow_animation();
         s_touching = true;
         s_last_y = event->y;
 
@@ -1340,6 +1778,7 @@ static void handle_touch_event(
         if (s_touching) {
             const int16_t delta_y = event->y - s_last_y;
             s_last_y = event->y;
+
             s_drag_accumulator += delta_y;
             s_arrow_drag_offset += delta_y;
 
@@ -1392,6 +1831,14 @@ static void handle_touch_event(
         // Remove the fractional visual offset so a tick sits exactly
         // underneath the read line.
         s_drag_accumulator = 0;
+
+        // Start the visual countdown only after the final value is known.
+        // Zero has no timer to start, so it remains completely static.
+        if (s_selected_minutes > 0) {
+            start_arrow_animation();
+        } else {
+            stop_arrow_animation();
+        }
 
         start_arrow_bounce();
         layer_mark_dirty(s_layer);
@@ -1503,18 +1950,27 @@ void touch_create(
     s_minimize_action_button_down = false;
     s_minimize_action_pressed = false;
     s_minimize_action_release_callback = NULL;
+    s_pause_controls_anim_timer = NULL;
+    s_pause_controls_anim_step = 0;
+    s_pause_controls_offset =
+        RUN_PAUSE_CONTROLS_HIDDEN_OFFSET;
+    s_pause_controls_visible = false;
+    s_run_controls_entry_timer = NULL;
+    s_run_controls_entry_step = 0;
+    s_run_controls_entry_offset =
+        RUN_CONTROLS_HIDDEN_OFFSET;
+    s_run_controls_entry_visible = false;
 
     s_layer = layer_create(layer_get_bounds(parent));
     layer_set_update_proc(s_layer, draw_ruler);
     layer_add_child(parent, s_layer);
     layer_set_hidden(s_layer, false);
 
+    s_arrow_animation_started = false;
     s_arrow_anim_phase = 0;
-    s_arrow_anim_timer = app_timer_register(
-        ARROW_ANIM_MS,
-        arrow_anim_tick,
-        NULL
-    );
+    s_arrow_anim_timer = NULL;
+    s_arrow_fill_count = 0;
+    s_arrow_fill_wave_index = -1;
 
     touch_enable(true);
 }
@@ -1528,6 +1984,8 @@ void touch_destroy(void) {
     cancel_running_timers();
     cancel_run_action_animation();
     cancel_minimize_action_animation();
+    hide_pause_controls();
+    hide_run_controls();
     touch_enable(false);
 
     if (s_touch_disable_timer != NULL) {
@@ -1535,10 +1993,7 @@ void touch_destroy(void) {
         s_touch_disable_timer = NULL;
     }
 
-    if (s_arrow_anim_timer != NULL) {
-        app_timer_cancel(s_arrow_anim_timer);
-        s_arrow_anim_timer = NULL;
-    }
+    stop_arrow_animation();
 
     if (s_arrow_bounce_timer != NULL) {
         app_timer_cancel(s_arrow_bounce_timer);
