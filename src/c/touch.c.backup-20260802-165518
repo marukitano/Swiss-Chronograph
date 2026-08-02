@@ -16,14 +16,8 @@
 // TAP_TIMER_BEVEL_TOP_DIAMOND_V1
 // TAP_TIMER_TRUE_BEVEL_DIAMOND_V1
 // TAP_TIMER_RESTORE_FULL_DIAMOND_V1
-// TAP_TIMER_DIAMOND_EXPAND_TRANSITION_V1
-// TAP_TIMER_CORNER_EXPAND_TRANSITION_V1
-// TAP_TIMER_TOP_SLIDE_V_EDGE_TRANSITION_V1
-// TAP_TIMER_WHITE_RUNNING_SCREEN_NO_DIAMOND_V1
 // TAP_TIMER_DEBUG_HOLD_FINAL_STACK_V1
 // TAP_TIMER_RELIABLE_FILL_START_V1
-// TAP_TIMER_EARLY_BOUNCE_SETTLE_V1
-// TAP_TIMER_NO_FINAL_BOUNCE_SNAP_V1
 // TAP_TIMER_SNAP_RULER_TO_MINUTE_V1
 // TAP_TIMER_AUTO_START_FORWARD_DECL_FIX_V1
 // Vertical timer-ruler interaction by Maru Kitano, 2026.
@@ -57,8 +51,8 @@
 #define ARROW_BOUNCE_DAMPING_DEN 100
 #define ARROW_FILL_MS 120
 #define RUNNING_FRAME_MS 50
-#define RUNNING_TRANSITION_MS 24
-#define RUNNING_TRANSITION_STEPS 12
+#define RUNNING_EXIT_MS 24
+#define RUNNING_EXIT_STEP 18
 
 static Layer *s_layer;
 static TouchSelectionCallback s_callback;
@@ -83,11 +77,11 @@ static uint8_t s_arrow_fill_count;
 static int8_t s_arrow_fill_wave_index;
 static bool s_running_screen;
 static bool s_running_transition;
-static uint8_t s_running_transition_step;
+static int16_t s_running_arrow_x;
 static uint32_t s_running_duration_ms;
 static uint32_t s_running_started_ms;
 static AppTimer *s_running_frame_timer;
-static AppTimer *s_running_transition_timer;
+static AppTimer *s_running_exit_timer;
 
 
 static int16_t clamp_minutes(int16_t minutes) {
@@ -191,6 +185,40 @@ static void finish_arrow_bounce(void) {
 }
 
 
+static void draw_filled_parallelogram(
+    GContext *ctx,
+    int16_t cx,
+    int16_t cy,
+    int16_t half_width,
+    GColor color
+) {
+    // Full rhombus again: no clipped corners and no changed width.
+    // Its lower half keeps exactly the same angle as the V below it.
+    const int16_t diamond_half_height = ARROW_HALF_HEIGHT * 2;
+    const int16_t diamond_center_y = cy - ARROW_HALF_HEIGHT;
+
+    graphics_context_set_stroke_color(ctx, color);
+    graphics_context_set_stroke_width(ctx, 1);
+
+    for (
+        int16_t dy = -diamond_half_height;
+        dy <= diamond_half_height;
+        ++dy
+    ) {
+        const int16_t distance_from_center = ABS(dy);
+        const int16_t line_half_width =
+            (half_width * (diamond_half_height - distance_from_center)) /
+            diamond_half_height;
+
+        graphics_draw_line(
+            ctx,
+            GPoint(cx - line_half_width, diamond_center_y + dy),
+            GPoint(cx + line_half_width, diamond_center_y + dy)
+        );
+    }
+}
+
+
 static void arrow_bounce_tick(void *context) {
     UNUSED(context);
 
@@ -200,41 +228,18 @@ static void arrow_bounce_tick(void *context) {
     s_arrow_bounce_velocity =
         (s_arrow_bounce_velocity * ARROW_BOUNCE_DAMPING_NUM) /
         ARROW_BOUNCE_DAMPING_DEN;
-
-    // Integer rounding can reduce the velocity to zero while the arrow is
-    // still 1-3 pixels away from the centre. Never let it visibly stop there.
-    if (s_arrow_drag_offset != 0 &&
-        s_arrow_bounce_velocity == 0) {
-        s_arrow_bounce_velocity =
-            s_arrow_drag_offset > 0 ? -1 : 1;
-    }
-
-    const int16_t previous_offset = s_arrow_drag_offset;
     s_arrow_drag_offset += s_arrow_bounce_velocity;
 
-    // If this step crossed the centre, land exactly on zero immediately.
-    // This happens during motion, so there is no later visible snap.
-    const bool crossed_centre =
-        (previous_offset > 0 && s_arrow_drag_offset <= 0) ||
-        (previous_offset < 0 && s_arrow_drag_offset >= 0);
+    const bool naturally_settled =
+        ABS(s_arrow_drag_offset) <= 1 &&
+        ABS(s_arrow_bounce_velocity) <= 1;
 
-    if (crossed_centre) {
-        s_arrow_drag_offset = 0;
-        s_arrow_bounce_velocity = 0;
+    const bool timed_out =
+        s_arrow_bounce_ticks >= ARROW_BOUNCE_MAX_TICKS;
+
+    if (naturally_settled || timed_out) {
         finish_arrow_bounce();
         return;
-    }
-
-    if (s_arrow_drag_offset == 0) {
-        s_arrow_bounce_velocity = 0;
-        finish_arrow_bounce();
-        return;
-    }
-
-    // Keep the safety timeout, but continue toward zero rather than snapping.
-    if (s_arrow_bounce_ticks >= ARROW_BOUNCE_MAX_TICKS) {
-        s_arrow_bounce_velocity =
-            s_arrow_drag_offset > 0 ? -1 : 1;
     }
 
     if (s_layer != NULL) {
@@ -315,10 +320,8 @@ static void arrow_fill_tick(void *context) {
                 layer_mark_dirty(s_layer);
             }
 
-            if (s_selected_minutes > 0 &&
-                s_auto_start_callback != NULL) {
-                s_auto_start_callback();
-            }
+            // DEBUG: Hold the fully filled paper stack on screen.
+            // Do not start the timer automatically, so a screenshot can be taken.
             return;
         }
     }
@@ -408,9 +411,9 @@ static void cancel_running_timers(void) {
         s_running_frame_timer = NULL;
     }
 
-    if (s_running_transition_timer != NULL) {
-        app_timer_cancel(s_running_transition_timer);
-        s_running_transition_timer = NULL;
+    if (s_running_exit_timer != NULL) {
+        app_timer_cancel(s_running_exit_timer);
+        s_running_exit_timer = NULL;
     }
 }
 
@@ -432,187 +435,26 @@ static void running_frame_tick(void *context) {
 }
 
 
-static int16_t lerp_i16(
-    int16_t a,
-    int16_t b,
-    uint8_t step,
-    uint8_t max_step
-) {
-    return a + (int16_t)(((int32_t)(b - a) * step) / max_step);
-}
-
-
-static void fill_convex_quad(
-    GContext *ctx,
-    GPoint p0,
-    GPoint p1,
-    GPoint p2,
-    GPoint p3,
-    GColor color
-) {
-    GPoint points[4] = { p0, p1, p2, p3 };
-
-    int16_t min_y = points[0].y;
-    int16_t max_y = points[0].y;
-
-    for (int i = 1; i < 4; ++i) {
-        if (points[i].y < min_y) {
-            min_y = points[i].y;
-        }
-        if (points[i].y > max_y) {
-            max_y = points[i].y;
-        }
-    }
-
-    graphics_context_set_stroke_color(ctx, color);
-    graphics_context_set_stroke_width(ctx, 1);
-
-    for (int16_t y = min_y; y <= max_y; ++y) {
-        int16_t xs[8];
-        int count = 0;
-
-        for (int i = 0; i < 4; ++i) {
-            GPoint a = points[i];
-            GPoint b = points[(i + 1) % 4];
-
-            if (a.y == b.y) {
-                continue;
-            }
-
-            const int16_t edge_min_y = a.y < b.y ? a.y : b.y;
-            const int16_t edge_max_y = a.y > b.y ? a.y : b.y;
-
-            if (y < edge_min_y || y >= edge_max_y) {
-                continue;
-            }
-
-            const int32_t dy = (int32_t)(b.y - a.y);
-            const int32_t dx = (int32_t)(b.x - a.x);
-            const int32_t y_off = (int32_t)(y - a.y);
-
-            xs[count++] = (int16_t)(a.x + (y_off * dx) / dy);
-        }
-
-        if (count < 2) {
-            continue;
-        }
-
-        if (xs[0] > xs[1]) {
-            const int16_t tmp = xs[0];
-            xs[0] = xs[1];
-            xs[1] = tmp;
-        }
-
-        graphics_draw_line(
-            ctx,
-            GPoint(xs[0], y),
-            GPoint(xs[1], y)
-        );
-    }
-}
-
-
-static void draw_expanding_transition_diamond(
-    GContext *ctx,
-    GRect bounds
-) {
-    // New running screen slides in from the top.
-    // Its lower edge is a single large V with the same angle family
-    // as the chevrons used in the selection arrow.
-    graphics_context_set_fill_color(ctx, config_get()->bgColor);
-    graphics_fill_rect(ctx, bounds, 0, GCornerNone);
-
-    if (s_running_transition_step >= RUNNING_TRANSITION_STEPS) {
-        graphics_context_set_fill_color(ctx, GColorWhite);
-        graphics_fill_rect(ctx, bounds, 0, GCornerNone);
-        return;
-    }
-
-    const int16_t w = bounds.size.w;
-    const int16_t h = bounds.size.h;
-    const int16_t center_x = w / 2;
-
-    int16_t screen_half_width = center_x;
-    if (screen_half_width < 1) {
-        screen_half_width = 1;
-    }
-
-    int16_t reference_arrow_half_width = w / 6;
-    if (reference_arrow_half_width < 1) {
-        reference_arrow_half_width = 1;
-    }
-
-    int16_t v_depth =
-        (screen_half_width * ARROW_HALF_HEIGHT) /
-        reference_arrow_half_width;
-
-    if (v_depth < ARROW_HALF_HEIGHT + 2) {
-        v_depth = ARROW_HALF_HEIGHT + 2;
-    }
-
-    const int16_t max_apex_y = h + v_depth;
-    const int16_t apex_y =
-        (max_apex_y * s_running_transition_step) /
-        RUNNING_TRANSITION_STEPS;
-
-    graphics_context_set_stroke_color(ctx, GColorWhite);
-    graphics_context_set_stroke_width(ctx, 1);
-
-    for (int16_t x = 0; x < w; ++x) {
-        int16_t dx = x - center_x;
-        if (dx < 0) {
-            dx = -dx;
-        }
-
-        int16_t edge_y =
-            apex_y -
-            (dx * v_depth) / screen_half_width;
-
-        if (edge_y < 0) {
-            continue;
-        }
-
-        if (edge_y > h - 1) {
-            edge_y = h - 1;
-        }
-
-        graphics_draw_line(
-            ctx,
-            GPoint(x, 0),
-            GPoint(x, edge_y)
-        );
-    }
-}
-
-
-static void running_transition_tick(void *context) {
+static void running_exit_tick(void *context) {
     UNUSED(context);
-    s_running_transition_timer = NULL;
+    s_running_exit_timer = NULL;
 
     if (!s_running_screen || s_layer == NULL) {
         return;
     }
 
-    if (s_running_transition_step >= RUNNING_TRANSITION_STEPS) {
+    s_running_arrow_x -= RUNNING_EXIT_STEP;
+
+    if (s_running_arrow_x <= -layer_get_bounds(s_layer).size.w) {
         s_running_transition = false;
         layer_mark_dirty(s_layer);
-
-        // Only start the live countdown after the white-diamond
-        // expansion transition has fully finished.
-        s_running_frame_timer = app_timer_register(
-            RUNNING_FRAME_MS,
-            running_frame_tick,
-            NULL
-        );
         return;
     }
 
-    s_running_transition_step++;
     layer_mark_dirty(s_layer);
-
-    s_running_transition_timer = app_timer_register(
-        RUNNING_TRANSITION_MS,
-        running_transition_tick,
+    s_running_exit_timer = app_timer_register(
+        RUNNING_EXIT_MS,
+        running_exit_tick,
         NULL
     );
 }
@@ -633,7 +475,7 @@ void touch_start_running(uint32_t duration_seconds) {
     s_touching = false;
     s_running_screen = true;
     s_running_transition = true;
-    s_running_transition_step = 0;
+    s_running_arrow_x = 0;
     s_running_duration_ms = duration_seconds * 1000U;
     s_running_started_ms = monotonic_ms();
 
@@ -644,9 +486,15 @@ void touch_start_running(uint32_t duration_seconds) {
 
     cancel_running_timers();
 
-    s_running_transition_timer = app_timer_register(
-        RUNNING_TRANSITION_MS,
-        running_transition_tick,
+    s_running_exit_timer = app_timer_register(
+        RUNNING_EXIT_MS,
+        running_exit_tick,
+        NULL
+    );
+
+    s_running_frame_timer = app_timer_register(
+        RUNNING_FRAME_MS,
+        running_frame_tick,
         NULL
     );
 
@@ -659,7 +507,7 @@ void touch_reset_idle(void) {
 
     s_running_screen = false;
     s_running_transition = false;
-    s_running_transition_step = 0;
+    s_running_arrow_x = 0;
     s_running_duration_ms = 0;
     s_running_started_ms = 0;
 
@@ -672,11 +520,40 @@ void touch_reset_idle(void) {
 static void draw_running_countdown(Layer *layer, GContext *ctx) {
     const GRect bounds = layer_get_bounds(layer);
 
-    graphics_context_set_fill_color(ctx, GColorWhite);
+    graphics_context_set_fill_color(ctx, config_get()->bgColor);
     graphics_fill_rect(ctx, bounds, 0, GCornerNone);
 
     if (s_running_transition) {
-        draw_expanding_transition_diamond(ctx, bounds);
+        const int16_t arrow_center_x =
+            (bounds.size.w / 2) + s_running_arrow_x;
+        const int16_t arrow_half_width = bounds.size.w / 6;
+        const int16_t arrow_stack_half_height =
+            ((ARROW_COUNT - 1) * ARROW_STEP_Y) / 2;
+        const int16_t arrow_top =
+            (bounds.size.h / 2) - arrow_stack_half_height;
+
+        for (int i = 0; i < ARROW_COUNT; ++i) {
+            const int16_t y =
+                arrow_top + (i * ARROW_STEP_Y);
+
+            if (i == 0) {
+                draw_filled_parallelogram(
+                    ctx,
+                    arrow_center_x,
+                    y,
+                    arrow_half_width,
+                    GColorWhite
+                );
+            } else {
+                draw_chevron_down(
+                    ctx,
+                    arrow_center_x,
+                    y,
+                    arrow_half_width,
+                    GColorWhite
+                );
+            }
+        }
         return;
     }
 
@@ -701,7 +578,7 @@ static void draw_running_countdown(Layer *layer, GContext *ctx) {
         (unsigned long)centiseconds
     );
 
-    graphics_context_set_text_color(ctx, GColorBlack);
+    graphics_context_set_text_color(ctx, config_get()->textColor);
 
     graphics_draw_text(
         ctx,
@@ -840,13 +717,37 @@ static void draw_ruler(Layer *layer, GContext *ctx) {
 
         if (y_down >= -ARROW_STEP_Y &&
             y_down <= bounds.size.h + ARROW_STEP_Y) {
-            draw_chevron_down(
-                ctx,
-                arrow_center_x,
-                (int16_t)y_down,
-                arrow_half_width,
-                arrow_color_for_index(i)
-            );
+            const GColor arrow_color =
+                arrow_color_for_index(i);
+
+            const bool top_is_final_paper =
+                i == 0 &&
+                (
+                    s_arrow_fill_count >= ARROW_COUNT
+                    ||
+                    (
+                        s_arrow_fill_count == ARROW_COUNT - 1 &&
+                        s_arrow_fill_wave_index == 0
+                    )
+                );
+
+            if (top_is_final_paper) {
+                draw_filled_parallelogram(
+                    ctx,
+                    arrow_center_x,
+                    (int16_t)y_down,
+                    arrow_half_width,
+                    GColorWhite
+                );
+            } else {
+                draw_chevron_down(
+                    ctx,
+                    arrow_center_x,
+                    (int16_t)y_down,
+                    arrow_half_width,
+                    arrow_color
+                );
+            }
         }
     }
 }
@@ -1023,11 +924,11 @@ void touch_create(
     s_arrow_bounce_timer = NULL;
     s_running_screen = false;
     s_running_transition = false;
-    s_running_transition_step = 0;
+    s_running_arrow_x = 0;
     s_running_duration_ms = 0;
     s_running_started_ms = 0;
     s_running_frame_timer = NULL;
-    s_running_transition_timer = NULL;
+    s_running_exit_timer = NULL;
 
     s_layer = layer_create(layer_get_bounds(parent));
     layer_set_update_proc(s_layer, draw_ruler);

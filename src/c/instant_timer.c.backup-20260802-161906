@@ -1036,9 +1036,6 @@ static void update_tick_subscription(TimeUnits new_update_rate) {
 // Modified by Maru Kitano, 2026.
 // Simplified interaction model: touch selects, Select starts, Back exits.
 static void simple_timer_reset_to_idle(void) {
-#if PBL_TOUCH
-    touch_reset_idle();
-#endif
     (void)alarm_clear();
     alarm_cancel_any_wakeup();
 
@@ -1090,10 +1087,6 @@ static void simple_timer_start(void) {
     s_state.is_alarm_done = false;
     s_save = true;
     s_mode = MODE_CTRL;
-
-#if PBL_TOUCH
-    touch_start_running((uint32_t)s_state.alarm_duration);
-#endif
 
     update_alarm_duration();
     update_elapsed();

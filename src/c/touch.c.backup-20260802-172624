@@ -19,7 +19,6 @@
 // TAP_TIMER_DIAMOND_EXPAND_TRANSITION_V1
 // TAP_TIMER_CORNER_EXPAND_TRANSITION_V1
 // TAP_TIMER_TOP_SLIDE_V_EDGE_TRANSITION_V1
-// TAP_TIMER_WHITE_RUNNING_SCREEN_NO_DIAMOND_V1
 // TAP_TIMER_DEBUG_HOLD_FINAL_STACK_V1
 // TAP_TIMER_RELIABLE_FILL_START_V1
 // TAP_TIMER_EARLY_BOUNCE_SETTLE_V1
@@ -188,6 +187,40 @@ static void finish_arrow_bounce(void) {
     }
 
     start_arrow_fill();
+}
+
+
+static void draw_filled_parallelogram(
+    GContext *ctx,
+    int16_t cx,
+    int16_t cy,
+    int16_t half_width,
+    GColor color
+) {
+    // Full rhombus again: no clipped corners and no changed width.
+    // Its lower half keeps exactly the same angle as the V below it.
+    const int16_t diamond_half_height = ARROW_HALF_HEIGHT * 2;
+    const int16_t diamond_center_y = cy - ARROW_HALF_HEIGHT;
+
+    graphics_context_set_stroke_color(ctx, color);
+    graphics_context_set_stroke_width(ctx, 1);
+
+    for (
+        int16_t dy = -diamond_half_height;
+        dy <= diamond_half_height;
+        ++dy
+    ) {
+        const int16_t distance_from_center = ABS(dy);
+        const int16_t line_half_width =
+            (half_width * (diamond_half_height - distance_from_center)) /
+            diamond_half_height;
+
+        graphics_draw_line(
+            ctx,
+            GPoint(cx - line_half_width, diamond_center_y + dy),
+            GPoint(cx + line_half_width, diamond_center_y + dy)
+        );
+    }
 }
 
 
@@ -672,7 +705,7 @@ void touch_reset_idle(void) {
 static void draw_running_countdown(Layer *layer, GContext *ctx) {
     const GRect bounds = layer_get_bounds(layer);
 
-    graphics_context_set_fill_color(ctx, GColorWhite);
+    graphics_context_set_fill_color(ctx, config_get()->bgColor);
     graphics_fill_rect(ctx, bounds, 0, GCornerNone);
 
     if (s_running_transition) {
@@ -701,7 +734,7 @@ static void draw_running_countdown(Layer *layer, GContext *ctx) {
         (unsigned long)centiseconds
     );
 
-    graphics_context_set_text_color(ctx, GColorBlack);
+    graphics_context_set_text_color(ctx, config_get()->textColor);
 
     graphics_draw_text(
         ctx,
@@ -840,13 +873,37 @@ static void draw_ruler(Layer *layer, GContext *ctx) {
 
         if (y_down >= -ARROW_STEP_Y &&
             y_down <= bounds.size.h + ARROW_STEP_Y) {
-            draw_chevron_down(
-                ctx,
-                arrow_center_x,
-                (int16_t)y_down,
-                arrow_half_width,
-                arrow_color_for_index(i)
-            );
+            const GColor arrow_color =
+                arrow_color_for_index(i);
+
+            const bool top_is_final_paper =
+                i == 0 &&
+                (
+                    s_arrow_fill_count >= ARROW_COUNT
+                    ||
+                    (
+                        s_arrow_fill_count == ARROW_COUNT - 1 &&
+                        s_arrow_fill_wave_index == 0
+                    )
+                );
+
+            if (top_is_final_paper) {
+                draw_filled_parallelogram(
+                    ctx,
+                    arrow_center_x,
+                    (int16_t)y_down,
+                    arrow_half_width,
+                    GColorWhite
+                );
+            } else {
+                draw_chevron_down(
+                    ctx,
+                    arrow_center_x,
+                    (int16_t)y_down,
+                    arrow_half_width,
+                    arrow_color
+                );
+            }
         }
     }
 }
