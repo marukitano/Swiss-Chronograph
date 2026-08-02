@@ -25,6 +25,7 @@ void touch_destroy(void);
 void touch_enable(bool enable);
 bool touch_in_progress(void);
 void touch_adjust_minutes(int delta);
+void touch_refresh(void);
 
 void touch_start_running(uint32_t duration_seconds);
 void touch_restore_running(

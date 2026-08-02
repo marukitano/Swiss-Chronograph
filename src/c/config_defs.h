@@ -8,7 +8,6 @@
 
 #include "macros.h"
 
-
 /** The persist data version for dealing with backwards-incompatible changes.
     This doesn't need to change as long as you only append new fields
     and don't change the messageKeys or meaning of existing data.
@@ -35,6 +34,7 @@
     MACRO(COLOR, GColor,              statusBarTextColor,           GColorWhite) \
     MACRO(COLOR, GColor,              actionBarBgColor,             GColorBlack) \
     MACRO(COLOR, GColor,              actionBarIconColor,           GColorWhite) \
+    MACRO(ENUM,  ThemeMode,           themeMode,                    ThemeMode_Shake) \
     MACRO(BOOL,  bool,                enableTouch,                  true) \
     MACRO(INT,   int32_t,             touchInputTimeoutDeciseconds, 20) /*how long you have to start the second touch before it cancels*/ \
     MACRO(INT,   int32_t,             touchMinDurationMs,           150) /*minimum duration for touches on the outer ring to register*/ \
@@ -51,9 +51,15 @@
     MACRO(INT,   uint8_t,             audioVolume,                  0) \
 /* end of X_CONFIG_OPTIONS */
 
-
 // The maximum value of shortAlarmMinutes and shortStopwatchMinutes, in config.json
 #define MAX_POWER_SAVING_THRESHOLD (16)
+
+// Overall display behaviour.
+typedef enum ThemeMode {
+    ThemeMode_Light = 0,
+    ThemeMode_Dark = 1,
+    ThemeMode_Shake = 2,
+} ThemeMode;
 
 // The meaning of the inner/outer ring for the initial touch
 typedef enum TouchZoneAssignment {

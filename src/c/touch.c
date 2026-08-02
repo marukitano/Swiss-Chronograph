@@ -9,6 +9,7 @@
 
 #include "config.h"
 #include "macros.h"
+#include "theme.h"
 
 #define TOUCH_ENABLED_DURATION_MS 3000
 #define PIXELS_PER_MINUTE 10
@@ -55,6 +56,15 @@
 #define PPF_COLON_DOT_SIZE 3
 #define PPF_COLON_TOP_Y 5
 #define PPF_COLON_BOTTOM_Y 13
+
+#define BRANDING_START_OFFSET_Y 20
+#define BRANDING_GAP_Y 3
+#define TINY_GLYPH_WIDTH 3
+#define TINY_GLYPH_HEIGHT 5
+#define TINY_GLYPH_ROTATED_WIDTH TINY_GLYPH_HEIGHT
+#define TINY_GLYPH_ADVANCE_Y 4
+#define EMBLEM_WIDTH 14
+#define EMBLEM_HEIGHT 11
 
 static Layer *s_layer;
 static GBitmap *s_ppf_digit_sheet;
@@ -161,6 +171,12 @@ void touch_adjust_minutes(int delta) {
     }
 
     set_minutes(s_selected_minutes + delta, true);
+}
+
+void touch_refresh(void) {
+    if (s_layer != NULL) {
+        layer_mark_dirty(s_layer);
+    }
 }
 
 static void arrow_anim_tick(void *context) {
@@ -412,8 +428,8 @@ static GColor arrow_color_for_index(int index) {
     const GColor dim = GColorDarkGray;
     const GColor mid = GColorLightGray;
 #else
-    const GColor dim = GColorBlack;
-    const GColor mid = GColorWhite;
+    const GColor dim = theme_color(GColorBlack);
+    const GColor mid = theme_foreground_color();
 #endif
 
     if (s_arrow_fill_count > 0 ||
@@ -422,11 +438,11 @@ static GColor arrow_color_for_index(int index) {
             ARROW_COUNT - s_arrow_fill_count;
 
         if (index >= first_completed) {
-            return GColorWhite;
+            return theme_foreground_color();
         }
 
         if (index == s_arrow_fill_wave_index) {
-            return GColorWhite;
+            return theme_foreground_color();
         }
 
         if (s_arrow_fill_wave_index > 0 &&
@@ -443,7 +459,7 @@ static GColor arrow_color_for_index(int index) {
     }
 
     if (index == s_arrow_anim_phase) {
-        return config_get()->textColor;
+        return theme_foreground_color();
     }
 
     if (index == ((s_arrow_anim_phase + ARROW_COUNT - 1) % ARROW_COUNT)) {
@@ -852,11 +868,11 @@ static void draw_top_slide_transition(
     // New running screen slides in from the top.
     // Its lower edge is a single large V with the same angle family
     // as the chevrons used in the selection arrow.
-    graphics_context_set_fill_color(ctx, config_get()->bgColor);
+    graphics_context_set_fill_color(ctx, theme_background_color());
     graphics_fill_rect(ctx, bounds, 0, GCornerNone);
 
     if (s_running_transition_step >= RUNNING_TRANSITION_STEPS) {
-        graphics_context_set_fill_color(ctx, GColorWhite);
+        graphics_context_set_fill_color(ctx, theme_background_color());
         graphics_fill_rect(ctx, bounds, 0, GCornerNone);
         return;
     }
@@ -881,7 +897,7 @@ static void draw_top_slide_transition(
         (max_apex_y * s_running_transition_step) /
         RUNNING_TRANSITION_STEPS;
 
-    graphics_context_set_stroke_color(ctx, GColorWhite);
+    graphics_context_set_stroke_color(ctx, theme_background_color());
     graphics_context_set_stroke_width(ctx, 1);
 
     for (int16_t x = 0; x < w; ++x) {
@@ -1294,7 +1310,7 @@ static void draw_running_action_bar(
     const int16_t marker_y =
         center_y - (RUN_ACTION_MARKER_HEIGHT / 2);
 
-    graphics_context_set_fill_color(ctx, GColorBlack);
+    graphics_context_set_fill_color(ctx, theme_foreground_color());
     graphics_fill_rect(
         ctx,
         GRect(
@@ -1310,7 +1326,7 @@ static void draw_running_action_bar(
     const int16_t center_x =
         edge_x - RUN_ACTION_MARKER_WIDTH - 10;
 
-    graphics_context_set_stroke_color(ctx, GColorBlack);
+    graphics_context_set_stroke_color(ctx, theme_foreground_color());
     graphics_context_set_stroke_width(ctx, 1);
 
     if (s_running_paused) {
@@ -1362,7 +1378,7 @@ static void draw_running_minimize_action(GContext *ctx) {
     const int16_t marker_y =
         center_y - (RUN_ACTION_MARKER_HEIGHT / 2);
 
-    graphics_context_set_fill_color(ctx, GColorBlack);
+    graphics_context_set_fill_color(ctx, theme_foreground_color());
     graphics_fill_rect(
         ctx,
         GRect(
@@ -1378,7 +1394,7 @@ static void draw_running_minimize_action(GContext *ctx) {
     const int16_t center_x =
         edge_x + RUN_ACTION_MARKER_WIDTH + 10;
 
-    graphics_context_set_stroke_color(ctx, GColorBlack);
+    graphics_context_set_stroke_color(ctx, theme_foreground_color());
     graphics_context_set_stroke_width(ctx, 2);
 
     graphics_draw_line(
@@ -1423,7 +1439,7 @@ static void draw_pause_side_control(
     const int16_t center_x =
         edge_x - RUN_ACTION_MARKER_WIDTH - 10;
 
-    graphics_context_set_fill_color(ctx, GColorBlack);
+    graphics_context_set_fill_color(ctx, theme_foreground_color());
     graphics_fill_rect(
         ctx,
         GRect(
@@ -1436,7 +1452,7 @@ static void draw_pause_side_control(
         GCornersLeft
     );
 
-    graphics_context_set_stroke_color(ctx, GColorBlack);
+    graphics_context_set_stroke_color(ctx, theme_foreground_color());
     graphics_context_set_stroke_width(ctx, 2);
 
     if (add_control) {
@@ -1537,11 +1553,13 @@ static void draw_ppf_colon(
     GContext *ctx,
     int16_t x,
     int16_t y,
-    bool white_digits
+    bool requested_white_digits
 ) {
+    UNUSED(requested_white_digits);
+
     graphics_context_set_fill_color(
         ctx,
-        white_digits ? GColorWhite : GColorBlack
+        theme_foreground_color()
     );
 
     graphics_fill_rect(
@@ -1573,14 +1591,20 @@ static bool draw_ppf_text_centered(
     GContext *ctx,
     const char *text,
     GRect frame,
-    bool white_digits
+    bool requested_white_digits
 ) {
-    GBitmap **digits = white_digits
+    UNUSED(requested_white_digits);
+
+    const bool use_white_sprite = !theme_is_light();
+
+    GBitmap **digits = use_white_sprite
         ? s_ppf_digits_white
         : s_ppf_digits;
 
-    if ((white_digits && s_ppf_digit_sheet_white == NULL)
-        || (!white_digits && s_ppf_digit_sheet == NULL)) {
+    if ((use_white_sprite
+            && s_ppf_digit_sheet_white == NULL)
+        || (!use_white_sprite
+            && s_ppf_digit_sheet == NULL)) {
         return false;
     }
 
@@ -1631,7 +1655,7 @@ static bool draw_ppf_text_centered(
                 ctx,
                 x,
                 y,
-                white_digits
+                requested_white_digits
             );
             x += PPF_COLON_WIDTH;
         } else {
@@ -1722,7 +1746,7 @@ static void destroy_ppf_digits(void) {
 static void draw_running_countdown(Layer *layer, GContext *ctx) {
     const GRect bounds = layer_get_bounds(layer);
 
-    graphics_context_set_fill_color(ctx, GColorWhite);
+    graphics_context_set_fill_color(ctx, theme_background_color());
     graphics_fill_rect(ctx, bounds, 0, GCornerNone);
 
     if (s_running_transition) {
@@ -1761,7 +1785,7 @@ static void draw_running_countdown(Layer *layer, GContext *ctx) {
         )) {
         graphics_context_set_text_color(
             ctx,
-            GColorBlack
+            theme_foreground_color()
         );
 
         graphics_draw_text(
@@ -1782,6 +1806,396 @@ static void draw_running_countdown(Layer *layer, GContext *ctx) {
     draw_running_action_bar(ctx, bounds);
 }
 
+
+// SWISS_CHRONOGRAPH_BRANDING_V1
+// Sideways Swiss shield. The point faces right.
+static const char *EMBLEM_ROWS[EMBLEM_HEIGHT] = {
+    ".RRRRRRRR.....",
+    "RRRRWWWRRRR...",
+    "RRRRWWWRRRR...",
+    "RRRRWWWRRRRR..",
+    "RWWWWWWWWWRRR.",
+    "RWWWWWWWWWRRRR",
+    "RWWWWWWWWWRRR.",
+    "RRRRWWWRRRRR..",
+    "RRRRWWWRRRR...",
+    "RRRRWWWRRRR...",
+    ".RRRRRRRR....."
+};
+
+static const char *tiny_glyph_rows(char character) {
+    if (character >= 'A' && character <= 'Z') {
+        character = (char)(character - 'A' + 'a');
+    }
+
+    switch (character) {
+    case 'a': return "010""101""111""101""101";
+    case 'c': return "111""100""100""100""111";
+    case 'g': return "111""100""101""101""111";
+    case 'h': return "101""101""111""101""101";
+    case 'i': return "111""010""010""010""111";
+    case 'n': return "110""101""101""101""101";
+    case 'o': return "111""101""101""101""111";
+    case 'p': return "110""101""110""100""100";
+    case 'r': return "110""101""110""101""101";
+    case 's': return "111""100""111""001""111";
+    case 'w': return "101""101""111""111""101";
+    default: return NULL;
+    }
+}
+
+static void draw_tiny_rotated_glyph(
+    GContext *ctx,
+    char character,
+    int16_t x,
+    int16_t y,
+    GColor color
+) {
+    const char *pixels = tiny_glyph_rows(character);
+
+    if (pixels == NULL) {
+        return;
+    }
+
+    graphics_context_set_fill_color(ctx, color);
+
+    for (int16_t source_y = 0;
+         source_y < TINY_GLYPH_HEIGHT;
+         ++source_y) {
+        for (int16_t source_x = 0;
+             source_x < TINY_GLYPH_WIDTH;
+             ++source_x) {
+            const int index =
+                source_y * TINY_GLYPH_WIDTH + source_x;
+
+            if (pixels[index] != '1') {
+                continue;
+            }
+
+            // 90 degrees counter-clockwise.
+            // Together with the reversed vertical layout this rotates
+            // the complete former branding by exactly 180 degrees.
+            graphics_fill_rect(
+                ctx,
+                GRect(
+                    x + source_y,
+                    y + TINY_GLYPH_WIDTH - 1 - source_x,
+                    1,
+                    1
+                ),
+                0,
+                GCornerNone
+            );
+        }
+    }
+}
+
+static int16_t draw_tiny_vertical_text(
+    GContext *ctx,
+    const char *text,
+    int16_t center_x,
+    int16_t bottom_y,
+    GColor color
+) {
+    const int16_t x =
+        center_x - (TINY_GLYPH_ROTATED_WIDTH / 2);
+
+    int16_t glyph_bottom_y = bottom_y;
+    int16_t word_top_y = bottom_y;
+
+    // Characters are placed upward. Reading from the bottom toward
+    // the top therefore produces the normal character order.
+    for (const char *cursor = text;
+         *cursor != '\0';
+         ++cursor) {
+        const int16_t glyph_top_y =
+            glyph_bottom_y - (TINY_GLYPH_WIDTH - 1);
+
+        draw_tiny_rotated_glyph(
+            ctx,
+            *cursor,
+            x,
+            glyph_top_y,
+            color
+        );
+
+        word_top_y = glyph_top_y;
+        glyph_bottom_y -= TINY_GLYPH_ADVANCE_Y;
+    }
+
+    return word_top_y;
+}
+
+static void draw_sideways_swiss_emblem(
+    GContext *ctx,
+    int16_t x,
+    int16_t y
+) {
+#if PBL_COLOR
+    const GColor red = GColorRed;
+    const GColor white = GColorWhite;
+#else
+    const GColor red = theme_foreground_color();
+    const GColor white = theme_background_color();
+#endif
+
+    for (int16_t row = 0;
+         row < EMBLEM_HEIGHT;
+         ++row) {
+        for (int16_t column = 0;
+             column < EMBLEM_WIDTH;
+             ++column) {
+            const char pixel = EMBLEM_ROWS[row][column];
+
+            if (pixel == '.') {
+                continue;
+            }
+
+            graphics_context_set_fill_color(
+                ctx,
+                pixel == 'R' ? red : white
+            );
+            graphics_fill_rect(
+                ctx,
+                GRect(x + column, y + row, 1, 1),
+                0,
+                GCornerNone
+            );
+        }
+    }
+}
+
+static void draw_swiss_chronograph_branding(
+    GContext *ctx,
+    GRect bounds,
+    int16_t ruler_left,
+    int16_t center_y,
+    int16_t fine_offset
+) {
+    UNUSED(ruler_left);
+    UNUSED(center_y);
+
+    // SWISS_CHRONOGRAPH_BRANDING_RIGHT_EDGE_V1
+    // Two completely empty pixels remain between the right-facing
+    // shield tip and the physical display edge.
+    const int16_t emblem_left_x =
+        bounds.size.w - EMBLEM_WIDTH - 2;
+    const int16_t brand_center_x =
+        emblem_left_x + (EMBLEM_WIDTH / 2);
+
+    // SWISS_EMBLEM_VERTICALLY_CENTERED_V1
+    // At minute zero, the shield itself is centred on the display.
+    // The same scale offset moves it downward together with the ruler.
+    const int32_t ruler_offset_y =
+        ((int32_t)s_selected_minutes * TICK_SPACING)
+        + fine_offset;
+
+    const int16_t emblem_top_y =
+        (bounds.size.h / 2)
+        - (EMBLEM_HEIGHT / 2)
+        + (int16_t)ruler_offset_y;
+
+    const int16_t emblem_bottom_y =
+        emblem_top_y + EMBLEM_HEIGHT - 1;
+
+    // Rotated 3x5 text uses four vertical pixels per character,
+    // except that the final character needs no trailing gap.
+    const int16_t swiss_height =
+        (5 * TINY_GLYPH_ADVANCE_Y) - 1;
+    const int16_t chronograph_height =
+        (11 * TINY_GLYPH_ADVANCE_Y) - 1;
+
+    const int16_t chronograph_bottom_y =
+        emblem_top_y - BRANDING_GAP_Y - 1;
+    const int16_t chronograph_top_y =
+        chronograph_bottom_y - chronograph_height + 1;
+
+    const int16_t swiss_top_y =
+        emblem_bottom_y + BRANDING_GAP_Y + 1;
+    const int16_t swiss_bottom_y =
+        swiss_top_y + swiss_height - 1;
+
+    if (chronograph_top_y >= bounds.size.h
+        || swiss_bottom_y < 0) {
+        return;
+    }
+
+    const GColor text_color =
+        theme_foreground_color();
+
+    // Readable from the right-hand side, bottom to top:
+    // swiss -> shield -> Chronograph.
+    (void)draw_tiny_vertical_text(
+        ctx,
+        "swiss",
+        brand_center_x,
+        swiss_bottom_y,
+        text_color
+    );
+
+    draw_sideways_swiss_emblem(
+        ctx,
+        emblem_left_x,
+        emblem_top_y
+    );
+
+    (void)draw_tiny_vertical_text(
+        ctx,
+        "Chronograph",
+        brand_center_x,
+        chronograph_bottom_y,
+        text_color
+    );
+}
+
+
+
+// READ_LINE_NUMBER_BUBBLE_V2
+static void draw_read_line_number_bubble(
+    GContext *ctx,
+    GRect bounds,
+    int16_t ruler_left,
+    int16_t center_y,
+    int16_t fine_offset
+) {
+    enum {
+        BADGE_NEAR_DISTANCE = 9,
+        BADGE_MIN_DIAMETER = 15,
+        BADGE_PADDING_X = 3,
+        BADGE_TEXT_FRAME_WIDTH = 36,
+        BADGE_TEXT_FRAME_HEIGHT = 18,
+        MAJOR_TICK_LENGTH = 22,
+        LABEL_RIGHT_GAP = 3
+    };
+
+    bool found = false;
+    int nearest_distance = BADGE_NEAR_DISTANCE + 1;
+    int nearest_minute = 0;
+    int16_t nearest_y = center_y;
+
+    for (int offset = -VISIBLE_TICKS;
+         offset <= VISIBLE_TICKS;
+         ++offset) {
+        const int minute = s_selected_minutes + offset;
+
+        if (minute < MIN_MINUTES
+            || minute > MAX_MINUTES
+            || (minute % 5) != 0) {
+            continue;
+        }
+
+        const int16_t y =
+            center_y
+            - (offset * TICK_SPACING)
+            + fine_offset;
+
+        const int distance = ABS(y - center_y);
+
+        if (distance <= BADGE_NEAR_DISTANCE
+            && distance < nearest_distance) {
+            found = true;
+            nearest_distance = distance;
+            nearest_minute = minute;
+            nearest_y = y;
+        }
+    }
+
+    if (!found) {
+        return;
+    }
+
+    char label[8];
+    snprintf(label, sizeof(label), "%d", nearest_minute);
+
+    const GFont font =
+        fonts_get_system_font(FONT_KEY_GOTHIC_14);
+
+    const GSize text_size =
+        graphics_text_layout_get_content_size(
+            label,
+            font,
+            GRect(
+                0,
+                0,
+                BADGE_TEXT_FRAME_WIDTH,
+                BADGE_TEXT_FRAME_HEIGHT
+            ),
+            GTextOverflowModeTrailingEllipsis,
+            GTextAlignmentCenter
+        );
+
+    const int16_t bubble_h = BADGE_MIN_DIAMETER;
+    int16_t bubble_w =
+        text_size.w + (BADGE_PADDING_X * 2);
+
+    if (bubble_w < bubble_h) {
+        bubble_w = bubble_h;
+    }
+
+    const int16_t bubble_right =
+        bounds.size.w
+        - MAJOR_TICK_LENGTH
+        - LABEL_RIGHT_GAP;
+
+    int16_t bubble_x = bubble_right - bubble_w;
+
+    if (bubble_x < ruler_left) {
+        bubble_x = ruler_left;
+    }
+
+    const int16_t bubble_y =
+        nearest_y - (bubble_h / 2);
+
+    const GRect bubble_rect = GRect(
+        bubble_x,
+        bubble_y,
+        bubble_w,
+        bubble_h
+    );
+
+    const int16_t radius = bubble_h / 2;
+
+    graphics_context_set_fill_color(
+        ctx,
+        theme_background_color()
+    );
+    graphics_fill_round_rect(
+        ctx,
+        bubble_rect,
+        radius
+    );
+
+    graphics_context_set_stroke_color(
+        ctx,
+        config_get()->ringColorRemaining
+    );
+    graphics_draw_round_rect(
+        ctx,
+        bubble_rect,
+        radius
+    );
+
+    graphics_context_set_text_color(
+        ctx,
+        theme_foreground_color()
+    );
+    graphics_draw_text(
+        ctx,
+        label,
+        font,
+        GRect(
+            bubble_rect.origin.x,
+            bubble_rect.origin.y - 1,
+            bubble_rect.size.w,
+            BADGE_TEXT_FRAME_HEIGHT
+        ),
+        GTextOverflowModeTrailingEllipsis,
+        GTextAlignmentCenter,
+        NULL
+    );
+}
+
+
 static void draw_ruler(Layer *layer, GContext *ctx) {
     if (s_running_screen) {
         draw_running_countdown(layer, ctx);
@@ -1795,7 +2209,7 @@ static void draw_ruler(Layer *layer, GContext *ctx) {
     const int16_t fine_offset =
         (s_drag_accumulator * TICK_SPACING) / PIXELS_PER_MINUTE;
 
-    graphics_context_set_fill_color(ctx, config_get()->bgColor);
+    graphics_context_set_fill_color(ctx, theme_background_color());
     graphics_fill_rect(
         ctx,
         GRect(ruler_left, 0, RULER_WIDTH, bounds.size.h),
@@ -1803,8 +2217,8 @@ static void draw_ruler(Layer *layer, GContext *ctx) {
         GCornerNone
     );
 
-    graphics_context_set_stroke_color(ctx, config_get()->textColor);
-    graphics_context_set_text_color(ctx, config_get()->textColor);
+    graphics_context_set_stroke_color(ctx, theme_foreground_color());
+    graphics_context_set_text_color(ctx, theme_foreground_color());
 
     const GFont small_font =
         fonts_get_system_font(FONT_KEY_GOTHIC_14);
@@ -1856,6 +2270,14 @@ static void draw_ruler(Layer *layer, GContext *ctx) {
         }
     }
 
+    draw_swiss_chronograph_branding(
+        ctx,
+        bounds,
+        ruler_left,
+        center_y,
+        fine_offset
+    );
+
     graphics_context_set_stroke_width(ctx, 3);
     graphics_context_set_stroke_color(
         ctx,
@@ -1876,6 +2298,15 @@ static void draw_ruler(Layer *layer, GContext *ctx) {
         GPoint(ruler_left, center_y)
     );
 
+    draw_read_line_number_bubble(
+        ctx,
+        bounds,
+        ruler_left,
+        center_y,
+        fine_offset
+    );
+
+
     snprintf(label, sizeof(label), "%d", s_selected_minutes);
 
     // Center on the full display and exactly on the read line.
@@ -1894,7 +2325,7 @@ static void draw_ruler(Layer *layer, GContext *ctx) {
         )) {
         graphics_context_set_text_color(
             ctx,
-            config_get()->textColor
+            theme_foreground_color()
         );
 
         graphics_draw_text(

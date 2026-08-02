@@ -27,7 +27,7 @@
       "watchface": false
     },
     "messageKeys": [
-      "theme",
+      "themeMode",
       "textColor",
       "bgColor",
       "bgColorImage",

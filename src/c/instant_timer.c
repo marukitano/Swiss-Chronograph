@@ -28,8 +28,10 @@
 #include "misc.h"
 #include "persist_keys.h"
 #include "touch.h"
+#include "theme.h"
 
 #define LIGHT_FADE_TIME_MS (500)  // The system duration for backlight fade, from light.c
+#define THEME_SHAKE_DEBOUNCE_MS 700
 
 static Window *s_main_window;
 
@@ -98,6 +100,8 @@ State_t s_state = {
 static bool s_save = true;  // whether to save on exit
 static bool s_initialising = true;
 static TimeUnits s_update_rate = YEAR_UNIT;
+static AppTimer *s_theme_shake_debounce_timer;
+static void new_config_handler(const Config *config);
 
 /******************************************************************************
  Generic-ish functions
@@ -1038,8 +1042,38 @@ static void battery_state_handler(BatteryChargeState charge) {
     }
 }
 
-static void accel_tap_handler(AccelAxisType axis, int32_t direction) {
-    TRACE("accel_tap_handler");
+static void theme_shake_debounce_clear(void *context) {
+    UNUSED(context);
+    s_theme_shake_debounce_timer = NULL;
+}
+
+static void accel_tap_handler(
+    AccelAxisType axis,
+    int32_t direction
+) {
+    UNUSED(axis);
+    UNUSED(direction);
+
+    if (theme_shake_enabled()) {
+        if (s_theme_shake_debounce_timer != NULL) {
+            return;
+        }
+
+        if (theme_toggle()) {
+            new_config_handler(config_get());
+
+#if PBL_TOUCH
+            touch_refresh();
+#endif
+        }
+
+        s_theme_shake_debounce_timer = app_timer_register(
+            THEME_SHAKE_DEBOUNCE_MS,
+            theme_shake_debounce_clear,
+            NULL
+        );
+    }
+
     update_tick_subscription(SECOND_UNIT);
     enable_touch();
 }
@@ -1261,62 +1295,133 @@ static void click_config_provider(void *context) {
 #endif // PBL_ROUND
 
 // Render background elements, including the progress ring
-static void render_background(Layer *layer, GContext *ctx) {
+static void render_background(
+    Layer *layer,
+    GContext *ctx
+) {
     const GRect bounds = layer_get_bounds(layer);
-    graphics_context_set_fill_color(ctx, config_get()->bgColor);
-    graphics_fill_rect(ctx, bounds, 0, GCornerNone);
+
+    graphics_context_set_fill_color(
+        ctx,
+        theme_background_color()
+    );
+    graphics_fill_rect(
+        ctx,
+        bounds,
+        0,
+        GCornerNone
+    );
 }
 
-static void set_text_colors(const Config* config) {
-    const GColor text_color = config->textColor;
-    text_layer_set_text_color(s_text_layer_edit_indicator, text_color);
-    text_layer_set_text_color(s_text_layer_alarm_duration, text_color);
-    text_layer_set_text_color(s_text_layer_alarm_time,     text_color);
-    text_layer_set_text_color(s_text_layer_big_remaining,  text_color);
-    text_layer_set_text_color(s_text_layer_big_elapsed,    text_color);
-    text_layer_set_text_color(s_text_layer_small_elapsed,  text_color);
+static void set_text_colors(const Config *config) {
+    UNUSED(config);
+
+    const GColor foreground =
+        theme_foreground_color();
+
+    text_layer_set_text_color(
+        s_text_layer_edit_indicator,
+        foreground
+    );
+    text_layer_set_text_color(
+        s_text_layer_alarm_duration,
+        foreground
+    );
+    text_layer_set_text_color(
+        s_text_layer_alarm_time,
+        foreground
+    );
+    text_layer_set_text_color(
+        s_text_layer_big_remaining,
+        foreground
+    );
+    text_layer_set_text_color(
+        s_text_layer_big_elapsed,
+        foreground
+    );
+    text_layer_set_text_color(
+        s_text_layer_small_elapsed,
+        foreground
+    );
 }
 
-static void set_bitmap_colors(const Config* config) {
-
-    // Actionbar icon palettes are white fill with black outline {0: Black, 1-2: Clear, 3: White}
+static void set_bitmap_colors(const Config *config) {
     const size_t action_fill_index = 3;
     const size_t action_line_index = 0;
-    const GColor action_fill_color = config->actionBarIconColor;
-    gbitmap_set_color(s_icon_start,   action_fill_index, action_fill_color);
-    gbitmap_set_color(s_icon_tick,    action_fill_index, action_fill_color);
-    const GColor action_line_color = config->roundIconOutline ? config->actionBarBgColor : GColorClear;
-    gbitmap_set_color(s_icon_start,   action_line_index, action_line_color);
-    gbitmap_set_color(s_icon_tick,    action_line_index, action_line_color);
 
-    // Other bitmaps' palettes are {0: Clear, 1: White}
+    const GColor foreground =
+        theme_foreground_color();
+    const GColor outline =
+        config->roundIconOutline
+            ? theme_background_color()
+            : GColorClear;
+
+    gbitmap_set_color(
+        s_icon_start,
+        action_fill_index,
+        foreground
+    );
+    gbitmap_set_color(
+        s_icon_tick,
+        action_fill_index,
+        foreground
+    );
+    gbitmap_set_color(
+        s_icon_start,
+        action_line_index,
+        outline
+    );
+    gbitmap_set_color(
+        s_icon_tick,
+        action_line_index,
+        outline
+    );
+
     const size_t color_index = 1;
 
-    // status
-    const GColor text_color = config->textColor;
-    gbitmap_set_color(s_status_icon_alarm, color_index, text_color);
-    gbitmap_set_color(s_status_icon_alert, color_index, text_color);
-    gbitmap_set_color(s_status_icon_pause, color_index, text_color);
-
+    gbitmap_set_color(
+        s_status_icon_alarm,
+        color_index,
+        foreground
+    );
+    gbitmap_set_color(
+        s_status_icon_alert,
+        color_index,
+        foreground
+    );
+    gbitmap_set_color(
+        s_status_icon_pause,
+        color_index,
+        foreground
+    );
 }
 
 // Handle new app config submission
-static void new_config_handler(const Config* config) {
-    UNUSED(config);
+static void new_config_handler(
+    const Config *config
+) {
+    theme_set_mode(config->themeMode);
+
     set_text_colors(config);
     set_bitmap_colors(config);
 
 #if PBL_RECT
-    action_bar_layer_set_background_color(s_action_bar, config->actionBarBgColor);
+    action_bar_layer_set_background_color(
+        s_action_bar,
+        theme_background_color()
+    );
 #endif // PBL_RECT
 
 #if PBL_TOUCH
     touch_enable(config->enableTouch);
+    touch_refresh();
 #endif // PBL_TOUCH
 
     update_tick_subscription(SECOND_UNIT);
 
-    layer_mark_dirty(window_get_root_layer(s_main_window));
+    layer_mark_dirty(
+        window_get_root_layer(s_main_window)
+    );
 }
 
 /******************************************************************************
@@ -1563,6 +1668,11 @@ static void main_window_load(Window *window) {
 static void main_window_unload(Window *window) {
     TRACE("main_window_unload");
 
+    if (s_theme_shake_debounce_timer != NULL) {
+        app_timer_cancel(s_theme_shake_debounce_timer);
+        s_theme_shake_debounce_timer = NULL;
+    }
+
     // background
     layer_destroy(s_bg_layer);
 
@@ -1614,6 +1724,7 @@ static void main_window_unload(Window *window) {
 
 static void init(void) {
     LOG("Init");
+    theme_init();
     s_main_window = window_create();
     window_set_click_config_provider(s_main_window, click_config_provider);
     window_set_window_handlers(s_main_window, (WindowHandlers) {

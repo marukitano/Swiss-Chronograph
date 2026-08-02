@@ -1,223 +1,111 @@
 [
-  { "type": "heading", "defaultValue": "Instant Timer config" },
-  { "type": "section",
+  {
+    "type": "heading",
+    "defaultValue": "Tap Timer settings"
+  },
+  {
+    "type": "section",
     "items": [
-      { "type": "heading", "defaultValue": "Alarm signal" },
-      { "type": "select", "messageKey": "alarmVibePattern", "label": "Vibration pattern",
+      {
+        "type": "heading",
+        "defaultValue": "Alarm"
+      },
+      {
+        "type": "select",
+        "messageKey": "alarmVibePattern",
+        "label": "Vibration pattern",
         "defaultValue": "0",
         "options": [
-          {"label": "Double", "value": "0" },
-          {"label": "Short", "value": "1" },
-          {"label": "Long", "value": "2" },
-          {"label": "None", "value": "3" }
+          {
+            "label": "Double",
+            "value": "0"
+          },
+          {
+            "label": "Short",
+            "value": "1"
+          },
+          {
+            "label": "Long",
+            "value": "2"
+          },
+          {
+            "label": "None",
+            "value": "3"
+          }
         ]
       },
-      { "type": "slider", "messageKey": "audioVolume", "label": "Beep volume (0 to disable)",
-        "capabilities": ["NOT_PLATFORM_APLITE", "NOT_PLATFORM_BASALT", "NOT_PLATFORM_CHALK", "NOT_PLATFORM_DIORITE"],
+      {
+        "type": "slider",
+        "messageKey": "audioVolume",
+        "label": "Beep volume",
+        "description": "Set to 0 to disable the beep.",
+        "capabilities": [
+          "NOT_PLATFORM_APLITE",
+          "NOT_PLATFORM_BASALT",
+          "NOT_PLATFORM_CHALK",
+          "NOT_PLATFORM_DIORITE"
+        ],
         "defaultValue": 0,
-        "min": 0, "max": 100, "step": 1
+        "min": 0,
+        "max": 100,
+        "step": 1
       }
     ]
   },
-  { "type": "section",
+  {
+    "type": "section",
     "items": [
-      { "type": "heading", "defaultValue": "Colours" },
-      { "type": "select", "messageKey": "theme", "label": "Theme",
-        "capabilities": ["COLOR"],
-        "defaultValue": "Dark",
+      {
+        "type": "heading",
+        "defaultValue": "Appearance"
+      },
+      {
+        "type": "select",
+        "messageKey": "themeMode",
+        "label": "Theme",
+        "defaultValue": "2",
         "options": [
-          {"label": "Dark", "value": "Dark" },
-          {"label": "Light", "value": "Light" },
-          {"label": "Green", "value": "Green" },
-          {"label": "Aqua", "value": "Aqua" },
-          {"label": "Custom", "value": "Custom" }
+          {
+            "label": "Light",
+            "value": "0"
+          },
+          {
+            "label": "Dark",
+            "value": "1"
+          },
+          {
+            "label": "Shake",
+            "value": "2"
+          }
         ]
       },
-      { "type": "select", "messageKey": "theme", "label": "Theme",
-        "capabilities": ["NOT_COLOR"],
-        "defaultValue": "Dark",
-        "options": [
-          {"label": "Dark", "value": "Dark" },
-          {"label": "Light", "value": "Light" },
-          {"label": "Custom", "value": "Custom" }
-        ]
-      },
-      { "type": "toggle", "messageKey": "roundIconOutline", "label": "Outline action bar icons",
-        "defaultValue": true,
-        "capabilities": ["ROUND"]
-      },
-      { "type": "color", "messageKey": "bgColor", "label": "Background - Main panel",
-        "defaultValue": "000000"
-      },
-      { "type": "color", "messageKey": "actionBarBgColor", "label": "Background - Action bar",
-        "defaultValue": "000000",
-        "capabilities": ["RECT"]
-      },
-      { "type": "color", "messageKey": "actionBarBgColor", "label": "Outline - Action bar",
-        "defaultValue": "000000",
-        "capabilities": ["ROUND"]
-      },
-      { "type": "color", "messageKey": "statusBarBgColor", "label": "Background - Status bar",
-        "defaultValue": "000000"
-      },
-      { "type": "color", "messageKey": "textColor", "label": "Foreground - Main panel",
-        "defaultValue": "ffffff"
-      },
-      { "type": "color", "messageKey": "actionBarIconColor", "label": "Foreground - Action bar",
-        "defaultValue": "ffffff",
-        "capabilities": ["RECT"]
-      },
-      { "type": "color", "messageKey": "actionBarIconColor", "label": "Icon fill - Action bar",
-        "defaultValue": "ffffff",
-        "capabilities": ["ROUND"]
-      },
-      { "type": "color", "messageKey": "statusBarTextColor", "label": "Foreground - Status bar",
-        "defaultValue": "ffffff"
-      },
-      { "type": "color", "messageKey": "ringColorEmpty", "label": "Progress ring - Empty",
-        "id": "col_ringColorEmpty",
-        "defaultValue": "555555",
-        "capabilities": ["COLOR"]
-      },
-      { "type": "color", "messageKey": "ringColorRemaining", "label": "Progress ring - Remaining",
+      {
+        "type": "color",
+        "messageKey": "ringColorRemaining",
+        "label": "Read line",
+        "description": "This colour stays unchanged in Light, Dark and Shake mode.",
         "id": "col_ringColorRemaining",
         "defaultValue": "00ff00",
-        "capabilities": ["COLOR"]
+        "capabilities": [
+          "COLOR"
+        ]
       },
-      { "type": "color", "messageKey": "ringColorOvertime", "label": "Progress ring - Overtime",
-        "id": "col_ringColorOvertime",
-        "defaultValue": "ff0000",
-        "capabilities": ["COLOR"]
-      },
-      { "type": "color", "messageKey": "ringColorEmpty", "label": "Progress ring - Empty",
-        "id": "bw_ringColorEmpty",
-        "defaultValue": "555555",
-        "capabilities": ["NOT_COLOR"],
-        "allowGray": true
-      },
-      { "type": "color", "messageKey": "ringColorRemaining", "label": "Progress ring - Remaining",
+      {
+        "type": "color",
+        "messageKey": "ringColorRemaining",
+        "label": "Read line",
+        "description": "This colour stays unchanged in Light, Dark and Shake mode.",
         "id": "bw_ringColorRemaining",
         "defaultValue": "ffffff",
-        "capabilities": ["NOT_COLOR"],
+        "capabilities": [
+          "NOT_COLOR"
+        ],
         "allowGray": true
-      },
-      { "type": "color", "messageKey": "ringColorOvertime", "label": "Progress ring - Overtime",
-        "id": "bw_ringColorOvertime",
-        "defaultValue": "ffffff",
-        "capabilities": ["NOT_COLOR"],
-        "allowGray": true
-      },
-      { "type": "color", "messageKey": "bgColorImage", "label": "Underlay - Pause/Bell",
-        "defaultValue": "550000",
-        "capabilities": ["COLOR"]
       }
     ]
   },
-  { "type": "section",
-    "items": [
-      { "type": "heading", "defaultValue": "Power saving" },
-      { "type": "slider", "messageKey": "backlightDurationS", "label": "Active duration (seconds)",
-        "description": "How long to display seconds updates after activity is detected. Recommended: set this equal to your backlight duration.",
-        "defaultValue": 3,
-        "min": 0, "max": 10, "step": 1
-      },
-      { "type": "slider", "messageKey": "shortAlarmMinutes", "label": "Timer threshold (minutes)",
-        "description": "Stay on seconds-updates when the remaining timer duration is below this value. Set 16 to always show seconds in timer mode, or 0 to never.",
-        "defaultValue": 3,
-        "min": 0, "max": 16, "step": 1
-      },
-      { "type": "slider", "messageKey": "shortStopwatchMinutes", "label": "Stopwatch threshold (minutes)",
-        "description": "Stay on seconds-updates when the elapsed stopwatch duration is below this value. Set 16 to always show seconds in stopwatch mode, or 0 to never.",
-        "defaultValue": 1,
-        "min": 0, "max": 16, "step": 1
-      }
-    ]
-  },
-  { "type": "section",
-    "items": [
-      { "type": "heading", "defaultValue": "Touch",
-        "capabilities": ["NOT_PLATFORM_APLITE", "NOT_PLATFORM_BASALT", "NOT_PLATFORM_CHALK", "NOT_PLATFORM_DIORITE", "NOT_PLATFORM_FLINT"]
-      },
-      { "type": "toggle", "messageKey": "enableTouch", "label": "Enable",
-        "capabilities": ["NOT_PLATFORM_APLITE", "NOT_PLATFORM_BASALT", "NOT_PLATFORM_CHALK", "NOT_PLATFORM_DIORITE", "NOT_PLATFORM_FLINT"],
-        "defaultValue": true
-      },
-      { "type": "toggle", "messageKey": "touchDisableWhileInactive", "label": "Turn off touchscreen while inactive",
-        "description": "Only turn on the touchscreen for 3s after a button press or accel tap/shake.",
-        "capabilities": ["NOT_PLATFORM_APLITE", "NOT_PLATFORM_BASALT", "NOT_PLATFORM_CHALK", "NOT_PLATFORM_DIORITE", "NOT_PLATFORM_FLINT"],
-        "group": "touch",
-        "defaultValue": false
-      },
-      { "type": "select", "messageKey": "touchZoneAssignment", "label": "Touch zones",
-        "capabilities": ["NOT_PLATFORM_APLITE", "NOT_PLATFORM_BASALT", "NOT_PLATFORM_CHALK", "NOT_PLATFORM_DIORITE", "NOT_PLATFORM_FLINT"],
-        "group": "touch",
-        "defaultValue": "0",
-        "options": [
-          {
-            "label": "Inner=Duration, Outer=Alarm Time",
-            "value": "0"
-          },
-          {
-            "label": "Inner=Alarm Time, Outer=Duration",
-            "value": "1"
-          }
-        ]
-      },
-      { "type": "select", "messageKey": "touchTimerSetMethod", "label": "Duration set method",
-        "capabilities": ["NOT_PLATFORM_APLITE", "NOT_PLATFORM_BASALT", "NOT_PLATFORM_CHALK", "NOT_PLATFORM_DIORITE", "NOT_PLATFORM_FLINT"],
-        "group": "touch",
-        "defaultValue": "0",
-        "options": [
-          {
-            "label": "Single touch; wind up for hours",
-            "value": "0"
-          },
-          {
-            "label": "Two touches; hours then minutes (like alarm)",
-            "value": "1"
-          }
-        ]
-      },
-      { "type": "select", "messageKey": "touchTimerMode", "label": "Affected values",
-        "capabilities": ["NOT_PLATFORM_APLITE", "NOT_PLATFORM_BASALT", "NOT_PLATFORM_CHALK", "NOT_PLATFORM_DIORITE", "NOT_PLATFORM_FLINT"],
-        "group": "touch",
-        "defaultValue": "1",
-        "options": [
-          {"label": "Set Duration, Clear Elapsed", "value": "0" },
-          {"label": "Set Duration, Keep Elapsed",  "value": "1" },
-          {"label": "Set Remaining, Keep Elapsed", "value": "2" }
-        ]
-      },
-      { "type": "slider", "messageKey": "touchInputTimeoutDeciseconds", "label": "Input timeout (seconds)",
-        "description": "Cancel after this long without a touch",
-        "capabilities": ["NOT_PLATFORM_APLITE", "NOT_PLATFORM_BASALT", "NOT_PLATFORM_CHALK", "NOT_PLATFORM_DIORITE", "NOT_PLATFORM_FLINT"],
-        "group": "touch",
-        "defaultValue": 2.0,
-        "min": 0.5,
-        "max": 5.0,
-        "step": 0.5
-      },
-      { "type": "slider", "messageKey": "touchMinDurationMs", "label": "Minimum touch duration (milliseconds)",
-        "description": "Touches shorter than this are ignored",
-        "capabilities": ["NOT_PLATFORM_APLITE", "NOT_PLATFORM_BASALT", "NOT_PLATFORM_CHALK", "NOT_PLATFORM_DIORITE", "NOT_PLATFORM_FLINT"],
-        "group": "touch",
-        "defaultValue": 150,
-        "min": 0,
-        "max": 1000,
-        "step": 50
-      },
-      { "type": "slider", "messageKey": "touchLiftMinDurationMs", "label": "Minimum lift duration (milliseconds)",
-        "description": "Lifts shorter than this are ignored when setting hours",
-        "capabilities": ["NOT_PLATFORM_APLITE", "NOT_PLATFORM_BASALT", "NOT_PLATFORM_CHALK", "NOT_PLATFORM_DIORITE", "NOT_PLATFORM_FLINT"],
-        "group": "touch",
-        "defaultValue": 100,
-        "min": 0,
-        "max": 1000,
-        "step": 50
-      }
-    ]
-  },
-  { "type": "submit",
+  {
+    "type": "submit",
     "defaultValue": "Save"
   }
 ]
