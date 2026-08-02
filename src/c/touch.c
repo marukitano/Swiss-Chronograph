@@ -33,6 +33,15 @@
 #define RUNNING_FRAME_MS 50
 #define RUNNING_TRANSITION_MS 24
 #define RUNNING_TRANSITION_STEPS 12
+#define RUN_ACTION_AREA_WIDTH 24
+#define RUN_ACTION_MARKER_WIDTH 5
+#define RUN_ACTION_MARKER_HEIGHT 52
+#define RUN_ACTION_ANIM_MS 28
+#define RUN_ACTION_PRESS_OFFSET 2
+#define RUN_ACTION_PRESSED_WIDTH (RUN_ACTION_MARKER_WIDTH + RUN_ACTION_PRESS_OFFSET)
+#define RUN_MINIMIZE_CENTER_Y 36
+#define RUN_MINIMIZE_ANIM_MS 55
+#define RUN_MINIMIZE_EXIT_DELAY_MS 90
 
 static Layer *s_layer;
 static TouchSelectionCallback s_callback;
@@ -60,6 +69,18 @@ static bool s_running_transition;
 static uint8_t s_running_transition_step;
 static uint32_t s_running_duration_ms;
 static uint32_t s_running_started_ms;
+static bool s_running_paused;
+static uint32_t s_running_paused_remaining_ms;
+static AppTimer *s_run_action_anim_timer;
+static uint8_t s_run_action_draw_width = RUN_ACTION_MARKER_WIDTH;
+static bool s_run_action_button_down;
+static bool s_run_action_action_fired;
+static TouchRunActionCallback s_run_action_callback;
+static AppTimer *s_minimize_action_anim_timer;
+static uint8_t s_minimize_action_draw_width = RUN_ACTION_MARKER_WIDTH;
+static bool s_minimize_action_button_down;
+static bool s_minimize_action_pressed;
+static TouchRunActionCallback s_minimize_action_release_callback;
 static AppTimer *s_running_frame_timer;
 static AppTimer *s_running_transition_timer;
 
@@ -271,6 +292,16 @@ static void arrow_fill_tick(void *context) {
         return;
     }
 
+    // Five chevrons fill normally. When the sixth chevron would start,
+    // replace it with the run-screen transition from the top.
+    if (s_arrow_fill_count >= ARROW_COUNT - 1) {
+        if (s_selected_minutes > 0 &&
+            s_auto_start_callback != NULL) {
+            s_auto_start_callback();
+        }
+        return;
+    }
+
     const int target_index =
         ARROW_COUNT - 1 - s_arrow_fill_count;
 
@@ -281,18 +312,6 @@ static void arrow_fill_tick(void *context) {
     } else {
         s_arrow_fill_count++;
         s_arrow_fill_wave_index = -1;
-
-        if (s_arrow_fill_count >= ARROW_COUNT) {
-            if (s_layer != NULL) {
-                layer_mark_dirty(s_layer);
-            }
-
-            if (s_selected_minutes > 0 &&
-                s_auto_start_callback != NULL) {
-                s_auto_start_callback();
-            }
-            return;
-        }
     }
 
     if (s_layer != NULL) {
@@ -374,6 +393,25 @@ static uint32_t monotonic_ms(void) {
 }
 
 
+static uint32_t running_remaining_ms(void) {
+    if (!s_running_screen) {
+        return 0;
+    }
+
+    if (s_running_paused) {
+        return s_running_paused_remaining_ms;
+    }
+
+    const uint32_t elapsed_ms =
+        monotonic_ms() - s_running_started_ms;
+
+    return elapsed_ms >= s_running_duration_ms
+        ? 0
+        : s_running_duration_ms - elapsed_ms;
+}
+
+
+
 static void cancel_running_timers(void) {
     if (s_running_frame_timer != NULL) {
         app_timer_cancel(s_running_frame_timer);
@@ -387,11 +425,184 @@ static void cancel_running_timers(void) {
 }
 
 
+
+static void cancel_run_action_animation(void) {
+    if (s_run_action_anim_timer != NULL) {
+        app_timer_cancel(s_run_action_anim_timer);
+        s_run_action_anim_timer = NULL;
+    }
+
+    s_run_action_draw_width = RUN_ACTION_MARKER_WIDTH;
+    s_run_action_button_down = false;
+    s_run_action_action_fired = false;
+    s_run_action_callback = NULL;
+
+    if (s_layer != NULL) {
+        layer_mark_dirty(s_layer);
+    }
+}
+
+
+
+static void run_action_animation_tick(void *context) {
+    UNUSED(context);
+    s_run_action_anim_timer = NULL;
+
+    if (!s_running_screen || s_layer == NULL) {
+        cancel_run_action_animation();
+        return;
+    }
+
+    if (!s_run_action_action_fired) {
+        if (s_run_action_draw_width < RUN_ACTION_PRESSED_WIDTH) {
+            s_run_action_draw_width++;
+        }
+
+        if (s_run_action_draw_width >= RUN_ACTION_PRESSED_WIDTH) {
+            s_run_action_action_fired = true;
+
+            TouchRunActionCallback callback = s_run_action_callback;
+            s_run_action_callback = NULL;
+
+            if (callback != NULL) {
+                callback();
+            }
+        }
+    } else if (!s_run_action_button_down) {
+        if (s_run_action_draw_width > RUN_ACTION_MARKER_WIDTH) {
+            s_run_action_draw_width--;
+        }
+    }
+
+    layer_mark_dirty(s_layer);
+
+    const bool moving_out =
+        !s_run_action_action_fired
+        && s_run_action_draw_width < RUN_ACTION_PRESSED_WIDTH;
+
+    const bool returning =
+        s_run_action_action_fired
+        && !s_run_action_button_down
+        && s_run_action_draw_width > RUN_ACTION_MARKER_WIDTH;
+
+    if (moving_out || returning) {
+        s_run_action_anim_timer = app_timer_register(
+            RUN_ACTION_ANIM_MS,
+            run_action_animation_tick,
+            NULL
+        );
+    }
+}
+
+
+static void cancel_minimize_action_animation(void) {
+    if (s_minimize_action_anim_timer != NULL) {
+        app_timer_cancel(s_minimize_action_anim_timer);
+        s_minimize_action_anim_timer = NULL;
+    }
+
+    s_minimize_action_draw_width = RUN_ACTION_MARKER_WIDTH;
+    s_minimize_action_button_down = false;
+    s_minimize_action_pressed = false;
+    s_minimize_action_release_callback = NULL;
+
+    if (s_layer != NULL) {
+        layer_mark_dirty(s_layer);
+    }
+}
+
+static void minimize_action_finish_tick(void *context) {
+    UNUSED(context);
+    s_minimize_action_anim_timer = NULL;
+
+    TouchRunActionCallback callback =
+        s_minimize_action_release_callback;
+
+    s_minimize_action_release_callback = NULL;
+    s_minimize_action_pressed = false;
+    s_minimize_action_draw_width = RUN_ACTION_MARKER_WIDTH;
+
+    if (callback != NULL) {
+        callback();
+    }
+}
+
+
+
+static void minimize_action_animation_tick(void *context) {
+    UNUSED(context);
+    s_minimize_action_anim_timer = NULL;
+
+    if (!s_running_screen || s_layer == NULL) {
+        cancel_minimize_action_animation();
+        return;
+    }
+
+    if (!s_minimize_action_pressed) {
+        if (s_minimize_action_draw_width
+            < RUN_ACTION_PRESSED_WIDTH) {
+            s_minimize_action_draw_width++;
+        }
+
+        if (s_minimize_action_draw_width
+            >= RUN_ACTION_PRESSED_WIDTH) {
+            s_minimize_action_pressed = true;
+        }
+    } else if (!s_minimize_action_button_down
+        && s_minimize_action_draw_width
+            > RUN_ACTION_MARKER_WIDTH) {
+        s_minimize_action_draw_width--;
+    }
+
+    layer_mark_dirty(s_layer);
+
+    if (!s_minimize_action_button_down
+        && s_minimize_action_pressed
+        && s_minimize_action_draw_width
+            <= RUN_ACTION_MARKER_WIDTH) {
+        s_minimize_action_draw_width =
+            RUN_ACTION_MARKER_WIDTH;
+
+        s_minimize_action_anim_timer = app_timer_register(
+            RUN_MINIMIZE_EXIT_DELAY_MS,
+            minimize_action_finish_tick,
+            NULL
+        );
+
+        if (s_minimize_action_anim_timer == NULL) {
+            minimize_action_finish_tick(NULL);
+        }
+        return;
+    }
+
+    const bool moving_in =
+        !s_minimize_action_pressed
+        && s_minimize_action_draw_width
+            < RUN_ACTION_PRESSED_WIDTH;
+
+    const bool moving_out =
+        s_minimize_action_pressed
+        && !s_minimize_action_button_down
+        && s_minimize_action_draw_width
+            > RUN_ACTION_MARKER_WIDTH;
+
+    if (moving_in || moving_out) {
+        s_minimize_action_anim_timer = app_timer_register(
+            RUN_MINIMIZE_ANIM_MS,
+            minimize_action_animation_tick,
+            NULL
+        );
+    }
+}
+
+
+
+
 static void running_frame_tick(void *context) {
     UNUSED(context);
     s_running_frame_timer = NULL;
 
-    if (!s_running_screen || s_layer == NULL) {
+    if (!s_running_screen || s_running_paused || s_layer == NULL) {
         return;
     }
 
@@ -458,6 +669,8 @@ static void draw_top_slide_transition(
             edge_y = h - 1;
         }
 
+        graphics_context_set_stroke_color(ctx, GColorWhite);
+
         graphics_draw_line(
             ctx,
             GPoint(x, 0),
@@ -480,11 +693,13 @@ static void running_transition_tick(void *context) {
         layer_mark_dirty(s_layer);
 
         // Start the live countdown after the top-slide transition.
-        s_running_frame_timer = app_timer_register(
-            RUNNING_FRAME_MS,
-            running_frame_tick,
-            NULL
-        );
+        if (!s_running_paused) {
+            s_running_frame_timer = app_timer_register(
+                RUNNING_FRAME_MS,
+                running_frame_tick,
+                NULL
+            );
+        }
         return;
     }
 
@@ -505,6 +720,8 @@ void touch_start_running(uint32_t duration_seconds) {
     }
 
     cancel_arrow_fill();
+    cancel_run_action_animation();
+    cancel_minimize_action_animation();
 
     if (s_arrow_bounce_timer != NULL) {
         app_timer_cancel(s_arrow_bounce_timer);
@@ -517,6 +734,8 @@ void touch_start_running(uint32_t duration_seconds) {
     s_running_transition_step = 0;
     s_running_duration_ms = duration_seconds * 1000U;
     s_running_started_ms = monotonic_ms();
+    s_running_paused = false;
+    s_running_paused_remaining_ms = s_running_duration_ms;
 
     if (s_touch_is_enabled) {
         touch_service_unsubscribe();
@@ -535,19 +754,379 @@ void touch_start_running(uint32_t duration_seconds) {
 }
 
 
-void touch_reset_idle(void) {
+void touch_restore_running(
+    uint32_t remaining_seconds,
+    bool paused
+) {
+    if (s_layer == NULL || remaining_seconds == 0) {
+        return;
+    }
+
+    cancel_arrow_fill();
+    cancel_run_action_animation();
+    cancel_minimize_action_animation();
+
+    if (s_arrow_bounce_timer != NULL) {
+        app_timer_cancel(s_arrow_bounce_timer);
+        s_arrow_bounce_timer = NULL;
+    }
+
+    s_touching = false;
+    s_running_screen = true;
+
+    // Restore directly to the finished run screen. The top-slide animation
+    // belongs only to a newly started timer.
+    s_running_transition = false;
+    s_running_transition_step = RUNNING_TRANSITION_STEPS;
+
+    s_running_duration_ms = remaining_seconds * 1000U;
+    s_running_started_ms = monotonic_ms();
+    s_running_paused = paused;
+    s_running_paused_remaining_ms =
+        paused ? s_running_duration_ms : 0;
+
+    if (s_touch_is_enabled) {
+        touch_service_unsubscribe();
+        s_touch_is_enabled = false;
+    }
+
     cancel_running_timers();
 
-    s_running_screen = false;
-    s_running_transition = false;
-    s_running_transition_step = 0;
-    s_running_duration_ms = 0;
-    s_running_started_ms = 0;
+    s_running_frame_timer = app_timer_register(
+        RUNNING_FRAME_MS,
+        running_frame_tick,
+        NULL
+    );
+
+    layer_mark_dirty(s_layer);
+}
+
+
+
+bool touch_running_screen_active(void) {
+    return s_running_screen;
+}
+
+
+void touch_set_paused(bool paused) {
+    if (!s_running_screen || paused == s_running_paused) {
+        return;
+    }
+
+    if (paused) {
+        s_running_paused_remaining_ms = running_remaining_ms();
+        s_running_paused = true;
+        cancel_running_timers();
+    } else {
+        s_running_duration_ms = s_running_paused_remaining_ms;
+        s_running_started_ms = monotonic_ms();
+        s_running_paused = false;
+
+        if (s_layer != NULL) {
+            if (s_running_transition) {
+                s_running_transition_timer = app_timer_register(
+                    RUNNING_TRANSITION_MS,
+                    running_transition_tick,
+                    NULL
+                );
+            } else {
+                s_running_frame_timer = app_timer_register(
+                    RUNNING_FRAME_MS,
+                    running_frame_tick,
+                    NULL
+                );
+            }
+        }
+    }
 
     if (s_layer != NULL) {
         layer_mark_dirty(s_layer);
     }
 }
+
+
+
+bool touch_run_action_press(
+    TouchRunActionCallback callback
+) {
+    if (!s_running_screen
+        || s_running_transition
+        || callback == NULL
+        || s_run_action_button_down
+        || s_run_action_draw_width != RUN_ACTION_MARKER_WIDTH
+        || s_run_action_anim_timer != NULL) {
+        return false;
+    }
+
+    s_run_action_button_down = true;
+    s_run_action_action_fired = false;
+    s_run_action_callback = callback;
+
+    s_run_action_draw_width++;
+
+    if (s_layer != NULL) {
+        layer_mark_dirty(s_layer);
+    }
+
+    s_run_action_anim_timer = app_timer_register(
+        RUN_ACTION_ANIM_MS,
+        run_action_animation_tick,
+        NULL
+    );
+
+    if (s_run_action_anim_timer == NULL) {
+        cancel_run_action_animation();
+        return false;
+    }
+
+    return true;
+}
+
+
+void touch_run_action_release(void) {
+    if (!s_run_action_button_down) {
+        return;
+    }
+
+    s_run_action_button_down = false;
+
+    if (s_run_action_action_fired
+        && s_run_action_draw_width > RUN_ACTION_MARKER_WIDTH
+        && s_run_action_anim_timer == NULL) {
+        s_run_action_anim_timer = app_timer_register(
+            RUN_ACTION_ANIM_MS,
+            run_action_animation_tick,
+            NULL
+        );
+    }
+}
+
+
+bool touch_minimize_action_press(void) {
+    if (!s_running_screen
+        || s_running_transition
+        || s_minimize_action_button_down
+        || s_minimize_action_draw_width
+            != RUN_ACTION_MARKER_WIDTH
+        || s_minimize_action_anim_timer != NULL) {
+        return false;
+    }
+
+    s_minimize_action_button_down = true;
+    s_minimize_action_pressed = false;
+    s_minimize_action_release_callback = NULL;
+
+    // First pixel immediately: the physical response feels direct.
+    s_minimize_action_draw_width++;
+
+    if (s_layer != NULL) {
+        layer_mark_dirty(s_layer);
+    }
+
+    s_minimize_action_anim_timer = app_timer_register(
+        RUN_MINIMIZE_ANIM_MS,
+        minimize_action_animation_tick,
+        NULL
+    );
+
+    if (s_minimize_action_anim_timer == NULL) {
+        cancel_minimize_action_animation();
+        return false;
+    }
+
+    return true;
+}
+
+
+void touch_minimize_action_release(
+    TouchRunActionCallback callback
+) {
+    if (!s_minimize_action_button_down) {
+        return;
+    }
+
+    s_minimize_action_button_down = false;
+    s_minimize_action_release_callback = callback;
+
+    // A quick tap completes the outward movement first. A held press
+    // starts returning as soon as the hardware button is released.
+    if (s_minimize_action_pressed
+        && s_minimize_action_draw_width
+            > RUN_ACTION_MARKER_WIDTH
+        && s_minimize_action_anim_timer == NULL) {
+        s_minimize_action_anim_timer = app_timer_register(
+            RUN_MINIMIZE_ANIM_MS,
+            minimize_action_animation_tick,
+            NULL
+        );
+
+        if (s_minimize_action_anim_timer == NULL) {
+            TouchRunActionCallback fallback_callback =
+                s_minimize_action_release_callback;
+
+            cancel_minimize_action_animation();
+
+            if (fallback_callback != NULL) {
+                fallback_callback();
+            }
+        }
+    }
+}
+
+
+
+
+
+void touch_reset_idle(void) {
+    cancel_running_timers();
+    cancel_run_action_animation();
+    cancel_minimize_action_animation();
+
+    if (s_arrow_bounce_timer != NULL) {
+        app_timer_cancel(s_arrow_bounce_timer);
+        s_arrow_bounce_timer = NULL;
+    }
+
+    cancel_arrow_fill();
+
+    // Leave running mode first. The parent timer logic may ignore selection
+    // callbacks while the countdown or alarm is still considered active.
+    s_running_screen = false;
+    s_running_transition = false;
+    s_running_transition_step = 0;
+    s_running_duration_ms = 0;
+    s_running_started_ms = 0;
+    s_running_paused = false;
+    s_running_paused_remaining_ms = 0;
+
+    // Now reset both the visual ruler state and the published timer value.
+    s_touching = false;
+    s_drag_accumulator = 0;
+    s_arrow_drag_offset = 0;
+    s_arrow_bounce_velocity = 0;
+    s_arrow_bounce_ticks = 0;
+    s_selected_minutes = 0;
+    publish_selection();
+
+    if (s_layer != NULL) {
+        layer_mark_dirty(s_layer);
+    }
+}
+
+
+static void draw_running_action_bar(
+    GContext *ctx,
+    GRect bounds
+) {
+    const int16_t center_y = bounds.size.h / 2;
+    const int16_t marker_x =
+        bounds.size.w - s_run_action_draw_width;
+    const int16_t marker_y =
+        center_y - (RUN_ACTION_MARKER_HEIGHT / 2);
+
+    // Small visual marker aligned with the physical middle button.
+    graphics_context_set_fill_color(ctx, GColorBlack);
+    graphics_fill_rect(
+        ctx,
+        GRect(
+            marker_x,
+            marker_y,
+            s_run_action_draw_width,
+            RUN_ACTION_MARKER_HEIGHT
+        ),
+        5,
+        GCornersLeft
+    );
+
+    // Keep the existing play/pause shape directly beside the marker.
+    const int16_t center_x =
+        bounds.size.w - RUN_ACTION_MARKER_WIDTH - 10;
+
+    graphics_context_set_fill_color(ctx, GColorBlack);
+    graphics_context_set_stroke_color(ctx, GColorBlack);
+    graphics_context_set_stroke_width(ctx, 1);
+
+    if (s_running_paused) {
+        // Right-pointing play triangle.
+        const int16_t base_x = center_x - 5;
+        const int16_t point_x = center_x + 5;
+
+        for (int16_t x = base_x; x <= point_x; ++x) {
+            const int16_t half_height =
+                ((point_x - x) * 7) / (point_x - base_x);
+
+            graphics_draw_line(
+                ctx,
+                GPoint(x, center_y - half_height),
+                GPoint(x, center_y + half_height)
+            );
+        }
+    } else {
+        // Pause symbol.
+        graphics_fill_rect(
+            ctx,
+            GRect(center_x - 5, center_y - 7, 3, 14),
+            0,
+            GCornerNone
+        );
+        graphics_fill_rect(
+            ctx,
+            GRect(center_x + 2, center_y - 7, 3, 14),
+            0,
+            GCornerNone
+        );
+    }
+}
+
+
+static void draw_running_minimize_action(
+    GContext *ctx,
+    GRect bounds
+) {
+    const int16_t center_y = RUN_MINIMIZE_CENTER_Y;
+    const int16_t marker_y =
+        center_y - (RUN_ACTION_MARKER_HEIGHT / 2);
+
+    graphics_context_set_fill_color(ctx, GColorBlack);
+    graphics_fill_rect(
+        ctx,
+        GRect(
+            0,
+            marker_y,
+            s_minimize_action_draw_width,
+            RUN_ACTION_MARKER_HEIGHT
+        ),
+        5,
+        GCornersRight
+    );
+
+    // Downward chevron above a short line: minimize, not close.
+    const int16_t center_x =
+        RUN_ACTION_MARKER_WIDTH + 10;
+
+    graphics_context_set_stroke_color(ctx, GColorBlack);
+    graphics_context_set_stroke_width(ctx, 2);
+
+    graphics_draw_line(
+        ctx,
+        GPoint(center_x - 5, center_y - 5),
+        GPoint(center_x, center_y)
+    );
+    graphics_draw_line(
+        ctx,
+        GPoint(center_x, center_y),
+        GPoint(center_x + 5, center_y - 5)
+    );
+    graphics_draw_line(
+        ctx,
+        GPoint(center_x - 6, center_y + 6),
+        GPoint(center_x + 6, center_y + 6)
+    );
+
+    UNUSED(bounds);
+}
+
+
 
 
 static void draw_running_countdown(Layer *layer, GContext *ctx) {
@@ -561,12 +1140,7 @@ static void draw_running_countdown(Layer *layer, GContext *ctx) {
         return;
     }
 
-    const uint32_t now_ms = monotonic_ms();
-    const uint32_t elapsed_ms = now_ms - s_running_started_ms;
-    const uint32_t remaining_ms =
-        elapsed_ms >= s_running_duration_ms
-        ? 0
-        : s_running_duration_ms - elapsed_ms;
+    const uint32_t remaining_ms = running_remaining_ms();
 
     const uint32_t minutes = remaining_ms / 60000U;
     const uint32_t seconds = (remaining_ms / 1000U) % 60U;
@@ -588,11 +1162,19 @@ static void draw_running_countdown(Layer *layer, GContext *ctx) {
         ctx,
         text,
         fonts_get_system_font(FONT_KEY_GOTHIC_28_BOLD),
-        GRect(2, (bounds.size.h / 2) - 24, bounds.size.w - 4, 48),
+        GRect(
+            2,
+            (bounds.size.h / 2) - 24,
+            bounds.size.w - RUN_ACTION_AREA_WIDTH - 4,
+            48
+        ),
         GTextOverflowModeTrailingEllipsis,
         GTextAlignmentCenter,
         NULL
     );
+
+    draw_running_minimize_action(ctx, bounds);
+    draw_running_action_bar(ctx, bounds);
 }
 
 
@@ -907,8 +1489,20 @@ void touch_create(
     s_running_transition_step = 0;
     s_running_duration_ms = 0;
     s_running_started_ms = 0;
+    s_running_paused = false;
+    s_running_paused_remaining_ms = 0;
     s_running_frame_timer = NULL;
     s_running_transition_timer = NULL;
+    s_run_action_anim_timer = NULL;
+    s_run_action_draw_width = RUN_ACTION_MARKER_WIDTH;
+    s_run_action_button_down = false;
+    s_run_action_action_fired = false;
+    s_run_action_callback = NULL;
+    s_minimize_action_anim_timer = NULL;
+    s_minimize_action_draw_width = RUN_ACTION_MARKER_WIDTH;
+    s_minimize_action_button_down = false;
+    s_minimize_action_pressed = false;
+    s_minimize_action_release_callback = NULL;
 
     s_layer = layer_create(layer_get_bounds(parent));
     layer_set_update_proc(s_layer, draw_ruler);
@@ -932,6 +1526,8 @@ void touch_destroy(void) {
     }
 
     cancel_running_timers();
+    cancel_run_action_animation();
+    cancel_minimize_action_animation();
     touch_enable(false);
 
     if (s_touch_disable_timer != NULL) {

@@ -1107,9 +1107,9 @@ static void simple_timer_exit(void) {
         simple_timer_reset_to_idle();
     } else {
         stopwatch_tick();
+        // Preserve every unfinished timer, including a paused one.
         s_save = (
-            s_state.is_counting
-            && (s_state.alarm_duration > 0)
+            (s_state.alarm_duration > 0)
             && (s_state.elapsed_time < s_state.alarm_duration)
         );
     }
@@ -1226,18 +1226,84 @@ static void down_click_handler_ctrl_long(ClickRecognizerRef recognizer, void *co
     do_exit(false);
 }
 
+
+#if PBL_TOUCH
+static void run_screen_pause_toggle_callback(void) {
+    // The alarm may begin during the short marker animation.
+    if (alarm_is_pulsing()) {
+        return;
+    }
+
+    do_toggle_pause();
+    touch_set_paused(!s_state.is_counting);
+    update_action_bar();
+    update_tick_subscription(SECOND_UNIT);
+}
+#endif
+
+
+
 static void select_click_handler(ClickRecognizerRef recognizer, void *context) {
     UNUSED(recognizer);
     UNUSED(context);
 
     if (do_alarm_clear()) {
         simple_timer_reset_to_idle();
+#if PBL_TOUCH
+    } else if (touch_running_screen_active()) {
+        return;
+#endif
     } else {
         simple_timer_start();
     }
 
     enable_touch();
 }
+
+
+static bool s_select_run_screen_press;
+
+
+static void select_raw_down_handler(
+    ClickRecognizerRef recognizer,
+    void *context
+) {
+    UNUSED(recognizer);
+    UNUSED(context);
+
+#if PBL_TOUCH
+    if (touch_running_screen_active() && !alarm_is_pulsing()) {
+        s_select_run_screen_press = true;
+        (void)touch_run_action_press(
+            run_screen_pause_toggle_callback
+        );
+        return;
+    }
+#endif
+
+    s_select_run_screen_press = false;
+}
+
+
+static void select_raw_up_handler(
+    ClickRecognizerRef recognizer,
+    void *context
+) {
+    UNUSED(recognizer);
+    UNUSED(context);
+
+#if PBL_TOUCH
+    if (s_select_run_screen_press) {
+        s_select_run_screen_press = false;
+        touch_run_action_release();
+        enable_touch();
+        return;
+    }
+#endif
+
+    select_click_handler(NULL, NULL);
+}
+
 
 static void select_long_click_handler(ClickRecognizerRef recognizer, void *context) {
     TRACE("select_long_click_handler");
@@ -1257,14 +1323,50 @@ static void back_click_handler(ClickRecognizerRef recognizer, void *context) {
     simple_timer_exit();
 }
 
+static void back_release_click_handler(
+    ClickRecognizerRef recognizer,
+    void *context
+) {
+    UNUSED(recognizer);
+    UNUSED(context);
+
+#if PBL_TOUCH
+    if (touch_running_screen_active()
+        && !alarm_is_pulsing()) {
+        // This handler is called only after the hardware button is released.
+        // Play the full visual press and return, then minimize.
+        if (touch_minimize_action_press()) {
+            touch_minimize_action_release(simple_timer_exit);
+            enable_touch();
+            return;
+        }
+    }
+#endif
+
+    back_click_handler(NULL, NULL);
+}
+
+
 static void click_config_provider(void *context) {
     UNUSED(context);
 #if PBL_TOUCH
     window_single_click_subscribe(BUTTON_ID_UP, up_click_handler);
     window_single_click_subscribe(BUTTON_ID_DOWN, down_click_handler);
 #endif
-    window_single_click_subscribe(BUTTON_ID_SELECT, select_click_handler);
-    window_single_click_subscribe(BUTTON_ID_BACK, back_click_handler);
+    window_raw_click_subscribe(
+        BUTTON_ID_SELECT,
+        select_raw_down_handler,
+        select_raw_up_handler,
+        NULL
+    );
+    window_multi_click_subscribe(
+        BUTTON_ID_BACK,
+        1,
+        1,
+        0,
+        true,
+        back_release_click_handler
+    );
 }
 
 
@@ -1593,8 +1695,7 @@ static void main_window_load(Window *window) {
     if (
         (launch_reason() != APP_LAUNCH_WAKEUP)
         && (
-            !s_state.is_counting
-            || (s_state.alarm_duration <= 0)
+            (s_state.alarm_duration <= 0)
             || (s_state.elapsed_time >= s_state.alarm_duration)
         )
     ) {
@@ -1605,6 +1706,24 @@ static void main_window_load(Window *window) {
         s_state.is_alarm_done = false;
         s_state.alarm_wakeup_id = E_DOES_NOT_EXIST;
     }
+
+
+#if PBL_TOUCH
+    const bool restore_run_screen =
+        loaded_state
+        && (s_state.alarm_duration > 0)
+        && (s_state.elapsed_time < s_state.alarm_duration);
+
+    if (restore_run_screen) {
+        const time_t remaining_seconds =
+            s_state.alarm_duration - s_state.elapsed_time;
+
+        touch_restore_running(
+            (uint32_t)remaining_seconds,
+            !s_state.is_counting
+        );
+    }
+#endif // PBL_TOUCH
 
     s_save = false;
     s_mode = MODE_CTRL;
