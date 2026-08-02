@@ -162,6 +162,16 @@
         },
         {
           "type": "bitmap",
+          "name": "PPF_DIGITS",
+          "file": "font/ppf-digits.png"
+        },
+        {
+          "type": "bitmap",
+          "name": "PPF_DIGITS_WHITE",
+          "file": "font/ppf-digits-white.png"
+        },
+        {
+          "type": "bitmap",
           "name": "SAVE_LARGE",
           "file": "images/save_large.png"
         },

@@ -19,7 +19,7 @@
 #define TICK_SPACING 12
 #define VISIBLE_TICKS 16
 
-#define READOUT_Y 20
+#define READOUT_Y 36
 
 #define ARROW_COUNT 6
 #define ARROW_STEP_Y 16
@@ -49,8 +49,22 @@
 #define RUN_CONTROLS_ENTRY_DELAY_MS 500
 #define RUN_CONTROLS_BOUNCE_MS 42
 #define RUN_CONTROLS_HIDDEN_OFFSET 30
+#define PPF_DIGIT_COUNT 10
+#define PPF_DIGIT_WIDTH 24
+#define PPF_DIGIT_HEIGHT 21
+#define PPF_DIGIT_STRIDE 26
+#define PPF_CHARACTER_GAP 2
+#define PPF_COLON_WIDTH 3
+#define PPF_COLON_DOT_SIZE 3
+#define PPF_COLON_TOP_Y 5
+#define PPF_COLON_BOTTOM_Y 13
 
 static Layer *s_layer;
+static GBitmap *s_ppf_digit_sheet;
+static GBitmap *s_ppf_digits[PPF_DIGIT_COUNT];
+static GBitmap *s_ppf_digit_sheet_white;
+static GBitmap *s_ppf_digits_white[PPF_DIGIT_COUNT];
+// TAP_TIMER_PPF_WHITE_SPRITE_V1
 static TouchSelectionCallback s_callback;
 static TouchServiceHandler s_parent_handler;
 static TouchAutoStartCallback s_auto_start_callback;
@@ -1562,6 +1576,235 @@ static void draw_running_pause_controls(
 
 
 
+
+
+
+// TAP_TIMER_PPF_DIGITS_V1
+static int16_t ppf_character_width(char character) {
+    if (character >= '0' && character <= '9') {
+        return PPF_DIGIT_WIDTH;
+    }
+
+    if (character == ':') {
+        return PPF_COLON_WIDTH;
+    }
+
+    return 0;
+}
+
+
+static int16_t ppf_text_width(const char *text) {
+    if (text == NULL || text[0] == '\0') {
+        return 0;
+    }
+
+    int16_t width = 0;
+    size_t count = 0;
+
+    for (const char *cursor = text;
+         *cursor != '\0';
+         ++cursor) {
+        const int16_t character_width =
+            ppf_character_width(*cursor);
+
+        if (character_width == 0) {
+            return 0;
+        }
+
+        width += character_width;
+        count++;
+    }
+
+    if (count > 1) {
+        width += (int16_t)(
+            (count - 1) * PPF_CHARACTER_GAP
+        );
+    }
+
+    return width;
+}
+
+
+static void draw_ppf_colon(
+    GContext *ctx,
+    int16_t x,
+    int16_t y,
+    bool white_digits
+) {
+    graphics_context_set_fill_color(
+        ctx,
+        white_digits ? GColorWhite : GColorBlack
+    );
+
+    graphics_fill_rect(
+        ctx,
+        GRect(
+            x,
+            y + PPF_COLON_TOP_Y,
+            PPF_COLON_WIDTH,
+            PPF_COLON_DOT_SIZE
+        ),
+        0,
+        GCornerNone
+    );
+
+    graphics_fill_rect(
+        ctx,
+        GRect(
+            x,
+            y + PPF_COLON_BOTTOM_Y,
+            PPF_COLON_WIDTH,
+            PPF_COLON_DOT_SIZE
+        ),
+        0,
+        GCornerNone
+    );
+}
+
+
+static bool draw_ppf_text_centered(
+    GContext *ctx,
+    const char *text,
+    GRect frame,
+    bool white_digits
+) {
+    GBitmap **digits = white_digits
+        ? s_ppf_digits_white
+        : s_ppf_digits;
+
+    if ((white_digits && s_ppf_digit_sheet_white == NULL)
+        || (!white_digits && s_ppf_digit_sheet == NULL)) {
+        return false;
+    }
+
+    const int16_t text_width = ppf_text_width(text);
+
+    if (text_width <= 0
+        || text_width > frame.size.w
+        || PPF_DIGIT_HEIGHT > frame.size.h) {
+        return false;
+    }
+
+    int16_t x = frame.origin.x
+        + ((frame.size.w - text_width) / 2);
+    const int16_t y = frame.origin.y
+        + ((frame.size.h - PPF_DIGIT_HEIGHT) / 2);
+
+    graphics_context_set_compositing_mode(
+        ctx,
+        GCompOpSet
+    );
+
+    for (const char *cursor = text;
+         *cursor != '\0';
+         ++cursor) {
+        if (*cursor >= '0' && *cursor <= '9') {
+            const uint8_t digit =
+                (uint8_t)(*cursor - '0');
+            GBitmap *bitmap = digits[digit];
+
+            if (bitmap == NULL) {
+                return false;
+            }
+
+            graphics_draw_bitmap_in_rect(
+                ctx,
+                bitmap,
+                GRect(
+                    x,
+                    y,
+                    PPF_DIGIT_WIDTH,
+                    PPF_DIGIT_HEIGHT
+                )
+            );
+
+            x += PPF_DIGIT_WIDTH;
+        } else if (*cursor == ':') {
+            draw_ppf_colon(
+                ctx,
+                x,
+                y,
+                white_digits
+            );
+            x += PPF_COLON_WIDTH;
+        } else {
+            return false;
+        }
+
+        if (cursor[1] != '\0') {
+            x += PPF_CHARACTER_GAP;
+        }
+    }
+
+    return true;
+}
+
+
+static void create_ppf_digits(void) {
+    s_ppf_digit_sheet = gbitmap_create_with_resource(
+        RESOURCE_ID_PPF_DIGITS
+    );
+    s_ppf_digit_sheet_white = gbitmap_create_with_resource(
+        RESOURCE_ID_PPF_DIGITS_WHITE
+    );
+
+    if (s_ppf_digit_sheet == NULL
+        || s_ppf_digit_sheet_white == NULL) {
+        return;
+    }
+
+    for (uint8_t digit = 0;
+         digit < PPF_DIGIT_COUNT;
+         ++digit) {
+        const GRect glyph = GRect(
+            digit * PPF_DIGIT_STRIDE,
+            0,
+            PPF_DIGIT_WIDTH,
+            PPF_DIGIT_HEIGHT
+        );
+
+        s_ppf_digits[digit] =
+            gbitmap_create_as_sub_bitmap(
+                s_ppf_digit_sheet,
+                glyph
+            );
+
+        s_ppf_digits_white[digit] =
+            gbitmap_create_as_sub_bitmap(
+                s_ppf_digit_sheet_white,
+                glyph
+            );
+    }
+}
+
+
+static void destroy_ppf_digits(void) {
+    for (uint8_t digit = 0;
+         digit < PPF_DIGIT_COUNT;
+         ++digit) {
+        if (s_ppf_digits[digit] != NULL) {
+            gbitmap_destroy(s_ppf_digits[digit]);
+            s_ppf_digits[digit] = NULL;
+        }
+
+        if (s_ppf_digits_white[digit] != NULL) {
+            gbitmap_destroy(s_ppf_digits_white[digit]);
+            s_ppf_digits_white[digit] = NULL;
+        }
+    }
+
+    if (s_ppf_digit_sheet != NULL) {
+        gbitmap_destroy(s_ppf_digit_sheet);
+        s_ppf_digit_sheet = NULL;
+    }
+
+    if (s_ppf_digit_sheet_white != NULL) {
+        gbitmap_destroy(s_ppf_digit_sheet_white);
+        s_ppf_digit_sheet_white = NULL;
+    }
+}
+
+
 static void draw_running_countdown(Layer *layer, GContext *ctx) {
     const GRect bounds = layer_get_bounds(layer);
 
@@ -1589,22 +1832,36 @@ static void draw_running_countdown(Layer *layer, GContext *ctx) {
         (unsigned long)centiseconds
     );
 
-    graphics_context_set_text_color(ctx, GColorBlack);
-
-    graphics_draw_text(
-        ctx,
-        text,
-        fonts_get_system_font(FONT_KEY_GOTHIC_28_BOLD),
-        GRect(
-            2,
-            (bounds.size.h / 2) - 24,
-            bounds.size.w - RUN_ACTION_AREA_WIDTH - 4,
-            48
-        ),
-        GTextOverflowModeTrailingEllipsis,
-        GTextAlignmentCenter,
-        NULL
+    const GRect timer_frame = GRect(
+        2,
+        (bounds.size.h / 2) - 24,
+        bounds.size.w - RUN_ACTION_AREA_WIDTH - 4,
+        48
     );
+
+    if (!draw_ppf_text_centered(
+            ctx,
+            text,
+            timer_frame,
+            false
+        )) {
+        graphics_context_set_text_color(
+            ctx,
+            GColorBlack
+        );
+
+        graphics_draw_text(
+            ctx,
+            text,
+            fonts_get_system_font(
+                FONT_KEY_GOTHIC_28_BOLD
+            ),
+            timer_frame,
+            GTextOverflowModeTrailingEllipsis,
+            GTextAlignmentCenter,
+            NULL
+        );
+    }
 
     draw_running_minimize_action(ctx, bounds);
     draw_running_pause_controls(ctx, bounds);
@@ -1708,17 +1965,40 @@ static void draw_ruler(Layer *layer, GContext *ctx) {
 
     snprintf(label, sizeof(label), "%d", s_selected_minutes);
 
-    graphics_context_set_text_color(ctx, config_get()->textColor);
-
-    graphics_draw_text(
-        ctx,
-        label,
-        fonts_get_system_font(FONT_KEY_GOTHIC_28_BOLD),
-        GRect(0, center_y - 20, bounds.size.w, 40),
-        GTextOverflowModeTrailingEllipsis,
-        GTextAlignmentCenter,
-        NULL
+    // TAP_TIMER_PPF_SELECTION_DIGITS_V1
+    // TAP_TIMER_PPF_SELECTION_WHITE_V2
+    // TAP_TIMER_CENTER_SELECTION_NUMBER_V1
+    // Center on the full display and exactly on the read line.
+    const GRect selected_value_frame = GRect(
+        0,
+        center_y - (PPF_DIGIT_HEIGHT / 2),
+        bounds.size.w,
+        PPF_DIGIT_HEIGHT
     );
+
+    if (!draw_ppf_text_centered(
+            ctx,
+            label,
+            selected_value_frame,
+            true
+        )) {
+        graphics_context_set_text_color(
+            ctx,
+            config_get()->textColor
+        );
+
+        graphics_draw_text(
+            ctx,
+            label,
+            fonts_get_system_font(
+                FONT_KEY_GOTHIC_28_BOLD
+            ),
+            selected_value_frame,
+            GTextOverflowModeTrailingEllipsis,
+            GTextAlignmentCenter,
+            NULL
+        );
+    }
 
     const int16_t arrow_center_x = bounds.size.w / 2;
     const int16_t arrow_half_width = bounds.size.w / 6;
@@ -1961,6 +2241,8 @@ void touch_create(
         RUN_CONTROLS_HIDDEN_OFFSET;
     s_run_controls_entry_visible = false;
 
+    create_ppf_digits();
+
     s_layer = layer_create(layer_get_bounds(parent));
     layer_set_update_proc(s_layer, draw_ruler);
     layer_add_child(parent, s_layer);
@@ -2007,6 +2289,8 @@ void touch_destroy(void) {
 
     layer_destroy(s_layer);
     s_layer = NULL;
+
+    destroy_ppf_digits();
     s_callback = NULL;
     s_parent_handler = NULL;
     s_auto_start_callback = NULL;
