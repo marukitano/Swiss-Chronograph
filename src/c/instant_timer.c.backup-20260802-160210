@@ -1515,10 +1515,6 @@ static void create_text_layout(Layer* parent) {
     layer_set_hidden(bitmap_layer_get_layer(s_status_icon_layer), true);
 }
 
-static void touch_auto_start_wrapper(void) {
-    select_click_handler(NULL, NULL);
-}
-
 static void main_window_load(Window *window) {
     TRACE("main_window_load");
 
@@ -1562,7 +1558,7 @@ static void main_window_load(Window *window) {
 
     // touch selector
 #if PBL_TOUCH
-    touch_create(window_layer, &handle_touch_selection, &handle_touch_event, touch_auto_start_wrapper);
+    touch_create(window_layer, &handle_touch_selection, &handle_touch_event);
 #endif // PBL_TOUCH
 
     // exit screen

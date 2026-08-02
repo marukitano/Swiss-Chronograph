@@ -3,7 +3,6 @@
 // TAP_TIMER_ONE_MINUTE_SCALE_RESTORED_V1
 // TAP_TIMER_CENTER_ARROW_AT_ZERO_V1
 // TAP_TIMER_ARROW_BOUNCE_BACK_V1
-// TAP_TIMER_AUTO_START_FILL_V1
 // Vertical timer-ruler interaction by Maru Kitano, 2026.
 
 #include "touch.h"
@@ -32,12 +31,10 @@
 #define ARROW_BOUNCE_MS 28
 #define ARROW_BOUNCE_DAMPING_NUM 72
 #define ARROW_BOUNCE_DAMPING_DEN 100
-#define ARROW_FILL_MS 500
 
 static Layer *s_layer;
 static TouchSelectionCallback s_callback;
 static TouchServiceHandler s_parent_handler;
-static TouchAutoStartCallback s_auto_start_callback;
 
 static bool s_touch_is_enabled;
 static bool s_touching;
@@ -51,8 +48,6 @@ static uint8_t s_arrow_anim_phase;
 static AppTimer *s_arrow_bounce_timer;
 static int16_t s_arrow_drag_offset;
 static int16_t s_arrow_bounce_velocity;
-static AppTimer *s_arrow_fill_timer;
-static uint8_t s_arrow_fill_count;
 
 
 static int16_t clamp_minutes(int16_t minutes) {
@@ -148,14 +143,10 @@ static void arrow_bounce_tick(void *context) {
         s_arrow_drag_offset = 0;
         s_arrow_bounce_velocity = 0;
         s_arrow_bounce_timer = NULL;
-    s_arrow_fill_timer = NULL;
-    s_arrow_fill_count = 0;
 
         if (s_layer != NULL) {
             layer_mark_dirty(s_layer);
         }
-
-        start_arrow_fill();
         return;
     }
 
@@ -194,67 +185,6 @@ static void start_arrow_bounce(void) {
 }
 
 
-static void cancel_arrow_fill(void) {
-    if (s_arrow_fill_timer != NULL) {
-        app_timer_cancel(s_arrow_fill_timer);
-        s_arrow_fill_timer = NULL;
-    }
-
-    s_arrow_fill_count = 0;
-
-    if (s_layer != NULL) {
-        layer_mark_dirty(s_layer);
-    }
-}
-
-
-static void arrow_fill_tick(void *context) {
-    UNUSED(context);
-    s_arrow_fill_timer = NULL;
-
-    if (s_touching || s_arrow_drag_offset != 0) {
-        cancel_arrow_fill();
-        return;
-    }
-
-    if (s_arrow_fill_count < ARROW_COUNT) {
-        s_arrow_fill_count++;
-    }
-
-    if (s_layer != NULL) {
-        layer_mark_dirty(s_layer);
-    }
-
-    if (s_arrow_fill_count >= ARROW_COUNT) {
-        if (s_selected_minutes > 0 && s_auto_start_callback != NULL) {
-            s_auto_start_callback();
-        }
-        return;
-    }
-
-    s_arrow_fill_timer = app_timer_register(
-        ARROW_FILL_MS,
-        arrow_fill_tick,
-        NULL
-    );
-}
-
-
-static void start_arrow_fill(void) {
-    cancel_arrow_fill();
-
-    if (s_selected_minutes <= 0 || s_auto_start_callback == NULL) {
-        return;
-    }
-
-    s_arrow_fill_timer = app_timer_register(
-        ARROW_FILL_MS,
-        arrow_fill_tick,
-        NULL
-    );
-}
-
-
 static GColor arrow_color_for_index(int index) {
 #if PBL_COLOR
     const GColor dim = GColorDarkGray;
@@ -263,11 +193,6 @@ static GColor arrow_color_for_index(int index) {
     const GColor dim = GColorBlack;
     const GColor mid = GColorWhite;
 #endif
-
-    if (s_arrow_fill_count > 0) {
-        const int first_white = ARROW_COUNT - s_arrow_fill_count;
-        return index >= first_white ? GColorWhite : dim;
-    }
 
     if (index == s_arrow_anim_phase) {
         return config_get()->textColor;
@@ -419,7 +344,6 @@ static void handle_touch_event(
 ) {
     switch (event->type) {
     case TouchEvent_Touchdown:
-        cancel_arrow_fill();
         s_touching = true;
         s_last_y = event->y;
 
@@ -545,8 +469,7 @@ void touch_enable(bool enable) {
 void touch_create(
     Layer *parent,
     TouchSelectionCallback callback,
-    TouchServiceHandler handler,
-    TouchAutoStartCallback auto_start_callback
+    TouchServiceHandler handler
 ) {
     if (!touch_service_is_enabled() || s_layer != NULL) {
         return;
@@ -554,7 +477,6 @@ void touch_create(
 
     s_callback = callback;
     s_parent_handler = handler;
-    s_auto_start_callback = auto_start_callback;
     s_selected_minutes = 0;
     s_drag_accumulator = 0;
     s_arrow_drag_offset = 0;
@@ -599,16 +521,10 @@ void touch_destroy(void) {
         s_arrow_bounce_timer = NULL;
     }
 
-    if (s_arrow_fill_timer != NULL) {
-        app_timer_cancel(s_arrow_fill_timer);
-        s_arrow_fill_timer = NULL;
-    }
-
     layer_destroy(s_layer);
     s_layer = NULL;
     s_callback = NULL;
     s_parent_handler = NULL;
-    s_auto_start_callback = NULL;
 }
 
 #endif // PBL_TOUCH

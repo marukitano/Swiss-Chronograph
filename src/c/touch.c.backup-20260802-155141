@@ -1,9 +1,7 @@
 // Copyright (c) 2026 Andrew Howe. All rights reserved. See LICENSE (GPLv3.0).
 // TAP_TIMER_RULER_TOUCH_V1
-// TAP_TIMER_ONE_MINUTE_SCALE_RESTORED_V1
-// TAP_TIMER_CENTER_ARROW_AT_ZERO_V1
-// TAP_TIMER_ARROW_BOUNCE_BACK_V1
-// TAP_TIMER_AUTO_START_FILL_V1
+// TAP_TIMER_HALF_MINUTE_SCALE_V1
+// TAP_TIMER_5_10_MINUTE_TICKS_V1
 // Vertical timer-ruler interaction by Maru Kitano, 2026.
 
 #include "touch.h"
@@ -16,11 +14,14 @@
 #include "macros.h"
 
 #define TOUCH_ENABLED_DURATION_MS 3000
-#define PIXELS_PER_MINUTE 10
-#define MIN_MINUTES 0
-#define MAX_MINUTES 180
+
+// One selection step equals 30 seconds.
+#define PIXELS_PER_STEP 14
+#define MIN_STEPS 0
+#define MAX_STEPS 360  // 180 minutes
+
 #define RULER_WIDTH 58
-#define TICK_SPACING 12
+#define TICK_SPACING 16
 #define VISIBLE_TICKS 16
 
 #define READOUT_Y 20
@@ -29,52 +30,48 @@
 #define ARROW_STEP_Y 13
 #define ARROW_HALF_HEIGHT 5
 #define ARROW_ANIM_MS 120
-#define ARROW_BOUNCE_MS 28
-#define ARROW_BOUNCE_DAMPING_NUM 72
-#define ARROW_BOUNCE_DAMPING_DEN 100
-#define ARROW_FILL_MS 500
 
 static Layer *s_layer;
 static TouchSelectionCallback s_callback;
 static TouchServiceHandler s_parent_handler;
-static TouchAutoStartCallback s_auto_start_callback;
 
 static bool s_touch_is_enabled;
 static bool s_touching;
 static int16_t s_last_y;
 static int16_t s_drag_accumulator;
-static int16_t s_selected_minutes;
+static int16_t s_selected_steps;
 
 static AppTimer *s_touch_disable_timer;
 static AppTimer *s_arrow_anim_timer;
 static uint8_t s_arrow_anim_phase;
-static AppTimer *s_arrow_bounce_timer;
-static int16_t s_arrow_drag_offset;
-static int16_t s_arrow_bounce_velocity;
-static AppTimer *s_arrow_fill_timer;
-static uint8_t s_arrow_fill_count;
 
 
-static int16_t clamp_minutes(int16_t minutes) {
-    return MIN(MAX(minutes, MIN_MINUTES), MAX_MINUTES);
+static int16_t clamp_steps(int16_t steps) {
+    return MIN(MAX(steps, MIN_STEPS), MAX_STEPS);
 }
 
 
 static void publish_selection(void) {
-    if (s_callback != NULL) {
-        s_callback(true, 0, (uint8_t)s_selected_minutes, 0);
-    }
-}
-
-
-static void set_minutes(int16_t minutes, bool publish) {
-    const int16_t clamped = clamp_minutes(minutes);
-
-    if (clamped == s_selected_minutes) {
+    if (s_callback == NULL) {
         return;
     }
 
-    s_selected_minutes = clamped;
+    const int16_t total_seconds = s_selected_steps * 30;
+    const uint8_t minutes = (uint8_t)(total_seconds / 60);
+    const uint8_t seconds = (uint8_t)(total_seconds % 60);
+
+    s_callback(true, 0, minutes, seconds);
+}
+
+
+static void set_steps(int16_t steps, bool publish) {
+    const int16_t clamped = clamp_steps(steps);
+
+    if (clamped == s_selected_steps) {
+        return;
+    }
+
+    s_selected_steps = clamped;
 
     if (publish) {
         publish_selection();
@@ -87,7 +84,8 @@ static void set_minutes(int16_t minutes, bool publish) {
 
 
 void touch_adjust_minutes(int delta) {
-    set_minutes(s_selected_minutes + delta, true);
+    // Physical buttons still change the value by one whole minute.
+    set_steps(s_selected_steps + (delta * 2), true);
 }
 
 
@@ -133,128 +131,6 @@ static void draw_chevron_down(
 }
 
 
-static void arrow_bounce_tick(void *context) {
-    UNUSED(context);
-
-    // Small integer spring: pull toward zero, then damp the velocity.
-    s_arrow_bounce_velocity += (-s_arrow_drag_offset * 34) / 100;
-    s_arrow_bounce_velocity =
-        (s_arrow_bounce_velocity * ARROW_BOUNCE_DAMPING_NUM) /
-        ARROW_BOUNCE_DAMPING_DEN;
-    s_arrow_drag_offset += s_arrow_bounce_velocity;
-
-    if (ABS(s_arrow_drag_offset) <= 1 &&
-        ABS(s_arrow_bounce_velocity) <= 1) {
-        s_arrow_drag_offset = 0;
-        s_arrow_bounce_velocity = 0;
-        s_arrow_bounce_timer = NULL;
-    s_arrow_fill_timer = NULL;
-    s_arrow_fill_count = 0;
-
-        if (s_layer != NULL) {
-            layer_mark_dirty(s_layer);
-        }
-
-        start_arrow_fill();
-        return;
-    }
-
-    if (s_layer != NULL) {
-        layer_mark_dirty(s_layer);
-        s_arrow_bounce_timer = app_timer_register(
-            ARROW_BOUNCE_MS,
-            arrow_bounce_tick,
-            NULL
-        );
-    } else {
-        s_arrow_bounce_timer = NULL;
-    }
-}
-
-
-static void start_arrow_bounce(void) {
-    if (s_arrow_bounce_timer != NULL) {
-        app_timer_cancel(s_arrow_bounce_timer);
-        s_arrow_bounce_timer = NULL;
-    }
-
-    // Give the spring a small initial kick toward the centre.
-    s_arrow_bounce_velocity = (-s_arrow_drag_offset * 24) / 100;
-
-    if (s_arrow_drag_offset == 0) {
-        s_arrow_bounce_velocity = 0;
-        return;
-    }
-
-    s_arrow_bounce_timer = app_timer_register(
-        ARROW_BOUNCE_MS,
-        arrow_bounce_tick,
-        NULL
-    );
-}
-
-
-static void cancel_arrow_fill(void) {
-    if (s_arrow_fill_timer != NULL) {
-        app_timer_cancel(s_arrow_fill_timer);
-        s_arrow_fill_timer = NULL;
-    }
-
-    s_arrow_fill_count = 0;
-
-    if (s_layer != NULL) {
-        layer_mark_dirty(s_layer);
-    }
-}
-
-
-static void arrow_fill_tick(void *context) {
-    UNUSED(context);
-    s_arrow_fill_timer = NULL;
-
-    if (s_touching || s_arrow_drag_offset != 0) {
-        cancel_arrow_fill();
-        return;
-    }
-
-    if (s_arrow_fill_count < ARROW_COUNT) {
-        s_arrow_fill_count++;
-    }
-
-    if (s_layer != NULL) {
-        layer_mark_dirty(s_layer);
-    }
-
-    if (s_arrow_fill_count >= ARROW_COUNT) {
-        if (s_selected_minutes > 0 && s_auto_start_callback != NULL) {
-            s_auto_start_callback();
-        }
-        return;
-    }
-
-    s_arrow_fill_timer = app_timer_register(
-        ARROW_FILL_MS,
-        arrow_fill_tick,
-        NULL
-    );
-}
-
-
-static void start_arrow_fill(void) {
-    cancel_arrow_fill();
-
-    if (s_selected_minutes <= 0 || s_auto_start_callback == NULL) {
-        return;
-    }
-
-    s_arrow_fill_timer = app_timer_register(
-        ARROW_FILL_MS,
-        arrow_fill_tick,
-        NULL
-    );
-}
-
-
 static GColor arrow_color_for_index(int index) {
 #if PBL_COLOR
     const GColor dim = GColorDarkGray;
@@ -263,11 +139,6 @@ static GColor arrow_color_for_index(int index) {
     const GColor dim = GColorBlack;
     const GColor mid = GColorWhite;
 #endif
-
-    if (s_arrow_fill_count > 0) {
-        const int first_white = ARROW_COUNT - s_arrow_fill_count;
-        return index >= first_white ? GColorWhite : dim;
-    }
 
     if (index == s_arrow_anim_phase) {
         return config_get()->textColor;
@@ -281,13 +152,35 @@ static GColor arrow_color_for_index(int index) {
 }
 
 
+static void format_time_label(
+    char *buffer,
+    size_t buffer_size,
+    int16_t steps
+) {
+    const int16_t total_seconds = steps * 30;
+    const int16_t minutes = total_seconds / 60;
+    const int16_t seconds = total_seconds % 60;
+
+    snprintf(
+        buffer,
+        buffer_size,
+        "%d:%02d",
+        minutes,
+        seconds
+    );
+}
+
+
 static void draw_ruler(Layer *layer, GContext *ctx) {
     const GRect bounds = layer_get_bounds(layer);
     const int16_t ruler_left = bounds.size.w - RULER_WIDTH;
     const int16_t center_y = READOUT_Y;
 
     const int16_t fine_offset =
-        (s_drag_accumulator * TICK_SPACING) / PIXELS_PER_MINUTE;
+        (s_drag_accumulator * TICK_SPACING) / PIXELS_PER_STEP;
+
+    const int32_t canvas_offset =
+        ((int32_t)s_selected_steps * TICK_SPACING) + fine_offset;
 
     graphics_context_set_fill_color(ctx, config_get()->bgColor);
     graphics_fill_rect(
@@ -303,12 +196,12 @@ static void draw_ruler(Layer *layer, GContext *ctx) {
     const GFont small_font =
         fonts_get_system_font(FONT_KEY_GOTHIC_14);
 
-    char label[8];
+    char label[12];
 
     for (int offset = -VISIBLE_TICKS; offset <= VISIBLE_TICKS; ++offset) {
-        const int minute = s_selected_minutes + offset;
+        const int step = s_selected_steps + offset;
 
-        if (minute < MIN_MINUTES || minute > MAX_MINUTES) {
+        if (step < MIN_STEPS || step > MAX_STEPS) {
             continue;
         }
 
@@ -319,10 +212,24 @@ static void draw_ruler(Layer *layer, GContext *ctx) {
             continue;
         }
 
-        const bool major = (minute % 5) == 0;
-        const int16_t tick_length = major ? 22 : 11;
+        // 30-second steps:
+        // - every 10 minutes: long tick
+        // - every 5 minutes: medium tick
+        // - everything else: short tick
+        const bool ten_minute = (step % 20) == 0;
+        const bool five_minute = (step % 10) == 0;
 
-        graphics_context_set_stroke_width(ctx, major ? 2 : 1);
+        const int16_t tick_length =
+            ten_minute ? 26 :
+            five_minute ? 19 :
+            10;
+
+        graphics_context_set_stroke_width(
+            ctx,
+            ten_minute ? 3 :
+            five_minute ? 2 :
+            1
+        );
 
         graphics_draw_line(
             ctx,
@@ -330,8 +237,9 @@ static void draw_ruler(Layer *layer, GContext *ctx) {
             GPoint(bounds.size.w - 1, y)
         );
 
-        if (major) {
-            snprintf(label, sizeof(label), "%d", minute);
+        // Label every five minutes, including the long 10-minute ticks.
+        if (five_minute) {
+            snprintf(label, sizeof(label), "%d", step / 2);
 
             graphics_draw_text(
                 ctx,
@@ -350,6 +258,7 @@ static void draw_ruler(Layer *layer, GContext *ctx) {
         }
     }
 
+    // Fixed read line at the old upper position.
     graphics_context_set_stroke_width(ctx, 3);
     graphics_context_set_stroke_color(
         ctx,
@@ -370,7 +279,7 @@ static void draw_ruler(Layer *layer, GContext *ctx) {
         GPoint(ruler_left, center_y)
     );
 
-    snprintf(label, sizeof(label), "%d", s_selected_minutes);
+    format_time_label(label, sizeof(label), s_selected_steps);
 
     graphics_context_set_text_color(ctx, config_get()->textColor);
 
@@ -387,13 +296,9 @@ static void draw_ruler(Layer *layer, GContext *ctx) {
     const int16_t arrow_center_x = bounds.size.w / 2;
     const int16_t arrow_half_width = bounds.size.w / 6;
 
-    // Centre the complete arrow stack vertically when the scale is at zero.
-    const int16_t arrow_stack_half_height =
-        ((ARROW_COUNT - 1) * ARROW_STEP_Y) / 2;
-
+    // The remaining down arrow stays coupled to the scale canvas.
     const int32_t lower_arrow_top =
-        (bounds.size.h / 2) - arrow_stack_half_height +
-        s_arrow_drag_offset;
+        center_y + 28 + canvas_offset;
 
     for (int i = 0; i < ARROW_COUNT; ++i) {
         const int32_t y_down =
@@ -419,15 +324,8 @@ static void handle_touch_event(
 ) {
     switch (event->type) {
     case TouchEvent_Touchdown:
-        cancel_arrow_fill();
         s_touching = true;
         s_last_y = event->y;
-
-        if (s_arrow_bounce_timer != NULL) {
-            app_timer_cancel(s_arrow_bounce_timer);
-            s_arrow_bounce_timer = NULL;
-        }
-        s_arrow_bounce_velocity = 0;
         break;
 
     case TouchEvent_PositionUpdate:
@@ -435,33 +333,32 @@ static void handle_touch_event(
             const int16_t delta_y = event->y - s_last_y;
             s_last_y = event->y;
             s_drag_accumulator += delta_y;
-            s_arrow_drag_offset += delta_y;
 
-            while (s_drag_accumulator >= PIXELS_PER_MINUTE) {
-                if (s_selected_minutes >= MAX_MINUTES) {
+            while (s_drag_accumulator >= PIXELS_PER_STEP) {
+                if (s_selected_steps >= MAX_STEPS) {
                     s_drag_accumulator = 0;
                     break;
                 }
 
-                s_drag_accumulator -= PIXELS_PER_MINUTE;
-                set_minutes(s_selected_minutes + 1, true);
+                s_drag_accumulator -= PIXELS_PER_STEP;
+                set_steps(s_selected_steps + 1, true);
             }
 
-            while (s_drag_accumulator <= -PIXELS_PER_MINUTE) {
-                if (s_selected_minutes <= MIN_MINUTES) {
+            while (s_drag_accumulator <= -PIXELS_PER_STEP) {
+                if (s_selected_steps <= MIN_STEPS) {
                     s_drag_accumulator = 0;
                     break;
                 }
 
-                s_drag_accumulator += PIXELS_PER_MINUTE;
-                set_minutes(s_selected_minutes - 1, true);
+                s_drag_accumulator += PIXELS_PER_STEP;
+                set_steps(s_selected_steps - 1, true);
             }
 
             if (
-                (s_selected_minutes <= MIN_MINUTES &&
+                (s_selected_steps <= MIN_STEPS &&
                  s_drag_accumulator < 0)
                 ||
-                (s_selected_minutes >= MAX_MINUTES &&
+                (s_selected_steps >= MAX_STEPS &&
                  s_drag_accumulator > 0)
             ) {
                 s_drag_accumulator = 0;
@@ -473,7 +370,6 @@ static void handle_touch_event(
 
     case TouchEvent_Liftoff:
         s_touching = false;
-        start_arrow_bounce();
         layer_mark_dirty(s_layer);
         break;
 
@@ -545,8 +441,7 @@ void touch_enable(bool enable) {
 void touch_create(
     Layer *parent,
     TouchSelectionCallback callback,
-    TouchServiceHandler handler,
-    TouchAutoStartCallback auto_start_callback
+    TouchServiceHandler handler
 ) {
     if (!touch_service_is_enabled() || s_layer != NULL) {
         return;
@@ -554,12 +449,8 @@ void touch_create(
 
     s_callback = callback;
     s_parent_handler = handler;
-    s_auto_start_callback = auto_start_callback;
-    s_selected_minutes = 0;
+    s_selected_steps = 0;
     s_drag_accumulator = 0;
-    s_arrow_drag_offset = 0;
-    s_arrow_bounce_velocity = 0;
-    s_arrow_bounce_timer = NULL;
 
     s_layer = layer_create(layer_get_bounds(parent));
     layer_set_update_proc(s_layer, draw_ruler);
@@ -594,21 +485,10 @@ void touch_destroy(void) {
         s_arrow_anim_timer = NULL;
     }
 
-    if (s_arrow_bounce_timer != NULL) {
-        app_timer_cancel(s_arrow_bounce_timer);
-        s_arrow_bounce_timer = NULL;
-    }
-
-    if (s_arrow_fill_timer != NULL) {
-        app_timer_cancel(s_arrow_fill_timer);
-        s_arrow_fill_timer = NULL;
-    }
-
     layer_destroy(s_layer);
     s_layer = NULL;
     s_callback = NULL;
     s_parent_handler = NULL;
-    s_auto_start_callback = NULL;
 }
 
 #endif // PBL_TOUCH
