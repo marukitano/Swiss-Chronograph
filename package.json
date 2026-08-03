@@ -16,7 +16,7 @@
   },
   "pebble": {
     "displayName": "Swiss Chronograph",
-    "uuid": "92860832-e162-49d5-bd89-81c92c0fe40c",
+    "uuid": "6748032d-33a4-4e26-b6e9-5f0e2217e072",
     "sdkVersion": "3",
     "enableMultiJS": true,
     "targetPlatforms": [
