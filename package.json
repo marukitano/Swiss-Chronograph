@@ -67,6 +67,11 @@
           "file": "images/status_pause.png"
         },
         {
+          "type": "raw",
+          "name": "ALARM_PCM",
+          "file": "sounds/alarm.pcm"
+        },
+        {
           "type": "bitmap",
           "name": "PPF_DIGITS",
           "file": "font/ppf-digits.png"

@@ -290,6 +290,24 @@ static int get_next_mode(const bool add) {
 #define ALARM_PULSE_DURATION SECONDS_PER_MINUTE  // how long the alarm will ring before automatically stopping
 static AppTimer* s_alarm_pulse_timer = NULL;
 
+#if PBL_SPEAKER
+#define ALARM_AUDIO_BUFFER_SIZE 1024
+#define ALARM_AUDIO_PUMP_INTERVAL_MS 10
+#define ALARM_AUDIO_MAX_WRITES_PER_PUMP 8
+
+static AppTimer *s_alarm_audio_pump_timer = NULL;
+static ResHandle s_alarm_audio_resource = NULL;
+static size_t s_alarm_audio_resource_size = 0;
+static size_t s_alarm_audio_resource_offset = 0;
+static uint8_t s_alarm_audio_buffer[ALARM_AUDIO_BUFFER_SIZE];
+static size_t s_alarm_audio_buffer_size = 0;
+static size_t s_alarm_audio_buffer_offset = 0;
+static bool s_alarm_audio_active = false;
+
+static void alarm_audio_stop(void);
+static void alarm_audio_pump(void *context);
+#endif // PBL_SPEAKER
+
 /// Return true if an alarm was pulsing
 static bool alarm_clear(void) {
     const bool was_active = s_alarm_pulse_timer != NULL;
@@ -299,7 +317,7 @@ static bool alarm_clear(void) {
         s_alarm_pulse_timer = NULL;
         vibes_cancel();
 #if PBL_SPEAKER
-        speaker_stop();
+        alarm_audio_stop();
 #endif // PBL_SPEAKER
         s_state.is_alarm_done = true;
     }
@@ -307,25 +325,176 @@ static bool alarm_clear(void) {
 }
 
 #if PBL_SPEAKER
-static void alarm_play_audio(void) {
-    static const SpeakerNote beep = {
-        .midi_note = 95,  // B6
-        .waveform = SpeakerWaveformSquare,
-        .duration_ms = 150,
-        .velocity = 0
-    };
-    static const SpeakerNote silence = {
-        .midi_note = 0,
-        .waveform = SpeakerWaveformSine,
-        .duration_ms = 100,
-        .velocity = 0,
-    };
-    static const SpeakerNote notes[4] = {beep, silence, beep, silence};
+static void alarm_audio_reset_state(void) {
+    s_alarm_audio_resource = NULL;
+    s_alarm_audio_resource_size = 0;
+    s_alarm_audio_resource_offset = 0;
+    s_alarm_audio_buffer_size = 0;
+    s_alarm_audio_buffer_offset = 0;
+    s_alarm_audio_active = false;
+}
+
+static void alarm_audio_stop(void) {
+    if (s_alarm_audio_pump_timer != NULL) {
+        app_timer_cancel(s_alarm_audio_pump_timer);
+        s_alarm_audio_pump_timer = NULL;
+    }
+
+    if (s_alarm_audio_active) {
+        // speaker_stop() is intentionally used instead of stream_close():
+        // dismissing the alarm must stop immediately, not drain the buffer.
+        speaker_stop();
+    }
+
+    alarm_audio_reset_state();
+}
+
+static bool alarm_audio_load_next_chunk(void) {
+    if (s_alarm_audio_resource == NULL
+        || s_alarm_audio_resource_size == 0) {
+        return false;
+    }
+
+    if (s_alarm_audio_resource_offset
+        >= s_alarm_audio_resource_size) {
+        s_alarm_audio_resource_offset = 0;
+    }
+
+    const size_t bytes_remaining =
+        s_alarm_audio_resource_size
+        - s_alarm_audio_resource_offset;
+
+    const size_t bytes_requested =
+        bytes_remaining < sizeof(s_alarm_audio_buffer)
+            ? bytes_remaining
+            : sizeof(s_alarm_audio_buffer);
+
+    const size_t bytes_loaded =
+        resource_load_byte_range(
+            s_alarm_audio_resource,
+            (uint32_t)s_alarm_audio_resource_offset,
+            s_alarm_audio_buffer,
+            bytes_requested
+        );
+
+    if (bytes_loaded == 0) {
+        return false;
+    }
+
+    s_alarm_audio_buffer_size = bytes_loaded;
+    s_alarm_audio_buffer_offset = 0;
+    return true;
+}
+
+static void alarm_audio_schedule_pump(void) {
+    if (!s_alarm_audio_active
+        || s_alarm_audio_pump_timer != NULL) {
+        return;
+    }
+
+    s_alarm_audio_pump_timer = app_timer_register(
+        ALARM_AUDIO_PUMP_INTERVAL_MS,
+        alarm_audio_pump,
+        NULL
+    );
+
+    if (s_alarm_audio_pump_timer == NULL) {
+        LOG("Could not schedule alarm audio pump");
+        alarm_audio_stop();
+    }
+}
+
+static void alarm_audio_pump(void *context) {
+    UNUSED(context);
+    s_alarm_audio_pump_timer = NULL;
+
+    if (!s_alarm_audio_active) {
+        return;
+    }
+
+    for (uint8_t write_attempt = 0;
+         write_attempt < ALARM_AUDIO_MAX_WRITES_PER_PUMP;
+         ++write_attempt) {
+        if (s_alarm_audio_buffer_offset
+            >= s_alarm_audio_buffer_size) {
+            if (!alarm_audio_load_next_chunk()) {
+                LOG("Could not load alarm PCM resource");
+                alarm_audio_stop();
+                return;
+            }
+        }
+
+        const size_t bytes_available =
+            s_alarm_audio_buffer_size
+            - s_alarm_audio_buffer_offset;
+
+        const uint32_t bytes_written =
+            speaker_stream_write(
+                s_alarm_audio_buffer
+                    + s_alarm_audio_buffer_offset,
+                (uint32_t)bytes_available
+            );
+
+        if (bytes_written == 0) {
+            // The speaker queue is full. Try again shortly.
+            break;
+        }
+
+        s_alarm_audio_buffer_offset += bytes_written;
+
+        if (s_alarm_audio_buffer_offset
+            >= s_alarm_audio_buffer_size) {
+            s_alarm_audio_resource_offset +=
+                s_alarm_audio_buffer_size;
+            s_alarm_audio_buffer_size = 0;
+            s_alarm_audio_buffer_offset = 0;
+
+            // Keep the same stream open and queue the first byte again.
+            if (s_alarm_audio_resource_offset
+                >= s_alarm_audio_resource_size) {
+                s_alarm_audio_resource_offset = 0;
+            }
+        }
+    }
+
+    alarm_audio_schedule_pump();
+}
+
+static bool alarm_audio_start(void) {
+    alarm_audio_stop();
 
     const uint8_t volume = config_get()->audioVolume;
-    if ((volume > 0) && !speaker_is_muted()) {
-        (void)speaker_play_notes(notes, ARRAY_LENGTH(notes), volume);
+
+    if (volume == 0 || speaker_is_muted()) {
+        return false;
     }
+
+    s_alarm_audio_resource =
+        resource_get_handle(RESOURCE_ID_ALARM_PCM);
+    s_alarm_audio_resource_size =
+        resource_size(s_alarm_audio_resource);
+
+    if (s_alarm_audio_resource == NULL
+        || s_alarm_audio_resource_size == 0) {
+        LOG("Alarm PCM resource is empty");
+        alarm_audio_reset_state();
+        return false;
+    }
+
+    if (!speaker_stream_open(
+            SpeakerPcmFormat_16kHz_8bit,
+            volume
+        )) {
+        LOG("Could not open alarm PCM stream");
+        alarm_audio_reset_state();
+        return false;
+    }
+
+    s_alarm_audio_active = true;
+
+    // Fill the speaker queue immediately; later pumps keep it supplied.
+    alarm_audio_pump(NULL);
+    return s_alarm_audio_active;
 }
 #endif // PBL_SPEAKER
 
@@ -352,7 +521,11 @@ static void alarm_pulse(void) {
         break;
     }
 #if PBL_SPEAKER
-    alarm_play_audio();
+    // The PCM stream is continuous. Vibration pulses merely ensure
+    // it is retried if it could not start earlier (for example, muted).
+    if (!s_alarm_audio_active) {
+        (void)alarm_audio_start();
+    }
 #endif // PBL_SPEAKER
 }
 

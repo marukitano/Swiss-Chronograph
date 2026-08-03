@@ -37,8 +37,8 @@
       {
         "type": "slider",
         "messageKey": "audioVolume",
-        "label": "Beep volume",
-        "description": "Set to 0 to disable the beep. Default: 100.",
+        "label": "Alarm volume",
+        "description": "Set to 0 to disable the alarm sound. Default: 100.",
         "capabilities": [
           "NOT_PLATFORM_APLITE",
           "NOT_PLATFORM_BASALT",
