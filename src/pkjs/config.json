@@ -39,12 +39,6 @@
         "messageKey": "audioVolume",
         "label": "Alarm volume",
         "description": "Set to 0 to disable the alarm sound. Default: 100.",
-        "capabilities": [
-          "NOT_PLATFORM_APLITE",
-          "NOT_PLATFORM_BASALT",
-          "NOT_PLATFORM_CHALK",
-          "NOT_PLATFORM_DIORITE"
-        ],
         "defaultValue": 100,
         "min": 0,
         "max": 100,
@@ -92,22 +86,7 @@
         "label": "Read line",
         "description": "This colour stays unchanged in Light, Dark and Shake mode.",
         "id": "col_ringColorRemaining",
-        "defaultValue": "00ff00",
-        "capabilities": [
-          "COLOR"
-        ]
-      },
-      {
-        "type": "color",
-        "messageKey": "ringColorRemaining",
-        "label": "Read line",
-        "description": "This colour stays unchanged in Light, Dark and Shake mode.",
-        "id": "bw_ringColorRemaining",
-        "defaultValue": "ffffff",
-        "capabilities": [
-          "NOT_COLOR"
-        ],
-        "allowGray": true
+        "defaultValue": "00ff00"
       }
     ]
   },

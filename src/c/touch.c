@@ -489,8 +489,8 @@ static void arrow_fill_tick(void *context) {
         return;
     }
 
-    // Five chevrons fill normally. When the sixth chevron would start,
-    // replace it with the run-screen transition from the top.
+    // Fill every chevron except the final one. When the final
+    // chevron would start, transition into the running screen.
     if (s_arrow_fill_count >= ARROW_COUNT - 1) {
         if (s_selected_minutes > 0 &&
             s_auto_start_callback != NULL) {
@@ -2666,39 +2666,44 @@ static void draw_ruler(Layer *layer, GContext *ctx) {
     );
 
 
-    snprintf(label, sizeof(label), "%d", s_selected_minutes);
+    // Keep the zero position visually quiet. The large value
+    // appears only after at least one minute is selected.
+    if (s_selected_minutes > 0) {
+        snprintf(label, sizeof(label), "%d", s_selected_minutes);
 
-    // Center on the full display and exactly on the read line.
-    const GRect selected_value_frame = GRect(
-        0,
-        center_y - (PPF_DIGIT_HEIGHT / 2),
-        bounds.size.w,
-        PPF_DIGIT_HEIGHT
-    );
-
-    if (!draw_ppf_text_centered(
-        ctx,
-        label,
-        selected_value_frame,
-        theme_foreground_color(),
-        false
-    )) {
-        graphics_context_set_text_color(
-            ctx,
-            theme_foreground_color()
+        // Center on the full display and exactly on the read line.
+        const GRect selected_value_frame = GRect(
+            0,
+            center_y - (PPF_DIGIT_HEIGHT / 2),
+            bounds.size.w,
+            PPF_DIGIT_HEIGHT
         );
 
-        graphics_draw_text(
+        if (!draw_ppf_text_centered(
             ctx,
             label,
-            fonts_get_system_font(
-                FONT_KEY_GOTHIC_28_BOLD
-            ),
             selected_value_frame,
-            GTextOverflowModeTrailingEllipsis,
-            GTextAlignmentCenter,
-            NULL
-        );
+            theme_foreground_color(),
+            false
+        )) {
+            graphics_context_set_text_color(
+                ctx,
+                theme_foreground_color()
+            );
+
+            graphics_draw_text(
+                ctx,
+                label,
+                fonts_get_system_font(
+                    FONT_KEY_GOTHIC_28_BOLD
+                ),
+                selected_value_frame,
+                GTextOverflowModeTrailingEllipsis,
+                GTextAlignmentCenter,
+                NULL
+            );
+        }
+
     }
 
     const int16_t arrow_center_x = bounds.size.w / 2;

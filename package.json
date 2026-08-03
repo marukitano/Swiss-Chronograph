@@ -6,8 +6,8 @@
     "pebble-app",
     "timer",
     "countdown",
-    "smartwatch",
-    "pebble-time-2"
+    "pebble-time-2",
+    "emery"
   ],
   "private": true,
   "dependencies": {
@@ -34,39 +34,6 @@
     "resources": {
       "media": [
         {
-          "file": "images/app_icon.png",
-          "type": "bitmap",
-          "name": "APP_ICON",
-          "targetPlatforms": [
-            "emery"
-          ]
-        },
-        {
-          "type": "bitmap",
-          "name": "ICON_START",
-          "file": "images/action_bar_start.png"
-        },
-        {
-          "type": "bitmap",
-          "name": "ICON_TICK",
-          "file": "images/action_bar_check.png"
-        },
-        {
-          "type": "bitmap",
-          "name": "ALARM",
-          "file": "images/status_alarm.png"
-        },
-        {
-          "type": "bitmap",
-          "name": "ALERT",
-          "file": "images/status_alert.png"
-        },
-        {
-          "type": "bitmap",
-          "name": "PAUSE",
-          "file": "images/status_pause.png"
-        },
-        {
           "type": "raw",
           "name": "ALARM_PCM",
           "file": "sounds/alarm.pcm"
@@ -84,7 +51,7 @@
       ]
     }
   },
-  "description": "A tactile countdown timer exclusively for Pebble Time 2, with a magnetic touch ruler and custom pixel display.",
+  "description": "EN: Tired of timer apps where your finger covers exactly what you are trying to set, or where starting a simple countdown takes countless taps? Swiss Chronograph is different: one swipe along the ruler and you are done. It runs in the background, wakes up reliably, and plays a proper 8-bit alarm sound. Choose a light or dark theme, or switch between them with a shake. The interface is deliberately minimal and uses as few clicks as possible, while remaining fully usable with the hardware buttons when you are wearing gloves. Built exclusively for Pebble Time 2, open source, and genuinely Swiss. Have fun with it! — Maru\n\nDE: Bist du es auch leid, dass du bei Timer-Apps mit dem Finger genau das verdeckst, was du einstellen möchtest, oder unzählige Klicks brauchst, um einen einfachen Countdown zu starten? Swiss Chronograph ist anders: Ein Swipe über das Lineal, und das war es. Er läuft im Hintergrund, weckt zuverlässig und spielt einen richtigen 8-Bit-Alarmton. Du kannst ein helles oder dunkles Theme verwenden oder mit einer Schüttelbewegung zwischen beiden wechseln. Die Bedienung ist bewusst minimalistisch und benötigt so wenige Klicks wie möglich, bleibt aber auch mit Handschuhen vollständig über die Hardwaretasten nutzbar. Ausschliesslich für die Pebble Time 2 entwickelt, Open Source und tatsächlich aus der Schweiz. Viel Spass damit! — Maru",
   "license": "GPL-3.0-only",
   "homepage": "https://github.com/marukitano/Tap-timer",
   "repository": {
