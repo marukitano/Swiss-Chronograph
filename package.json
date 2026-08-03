@@ -38,7 +38,7 @@
         {
           "type": "bitmap",
           "name": "APP_ICON",
-          "file": "images/app_icon~color.png",
+          "file": "images/app_icon.png",
           "menuIcon": true
         },
         {
