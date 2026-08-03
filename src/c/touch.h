@@ -31,6 +31,7 @@ void touch_restore_running(
     uint32_t remaining_seconds,
     bool paused
 );
+void touch_show_alarm(uint32_t duration_seconds);
 bool touch_running_screen_active(void);
 void touch_set_paused(bool paused);
 void touch_add_running_seconds(uint32_t seconds);

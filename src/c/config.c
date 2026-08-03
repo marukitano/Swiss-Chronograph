@@ -32,18 +32,69 @@ static NewConfigCallback s_new_config_callback = NULL;
  Private methods; Local watch persistence
 ******************************************************************************/
 
-static bool is_local_persist_written_and_current_version(void) {
-    return persist_read_int(PERSIST_KEY_CONFIG_VERSION) == PERSIST_CONFIG_VERSION;
-}
+
+static void local_persist_save(void);
 
 static void local_persist_load(void) {
+    const int32_t stored_version =
+        persist_read_int(PERSIST_KEY_CONFIG_VERSION);
+
     StatusCode status = E_DOES_NOT_EXIST;
-    if (is_local_persist_written_and_current_version()){
-        status = persist_read_data(PERSIST_KEY_CONFIG, &s_config, sizeof(s_config));
-        LOG("Loaded config from persistent storage");
+
+    if (stored_version == PERSIST_CONFIG_VERSION) {
+        status = persist_read_data(
+            PERSIST_KEY_CONFIG,
+            &s_config,
+            sizeof(s_config)
+        );
+    } else if (
+        stored_version == 3
+        || stored_version == 2
+    ) {
+        // Versions 2 and 3 already use the current compact Config layout.
+        // Preserve every user setting. Only migrate defaults introduced by
+        // the two cleanup revisions:
+        // - version 2 accidentally defaulted to silent
+        // - version 3 accidentally defaulted to 50%
+        status = persist_read_data(
+            PERSIST_KEY_CONFIG,
+            &s_config,
+            sizeof(s_config)
+        );
+
+        if (status == sizeof(s_config)) {
+            const bool migrate_version_2_default =
+                stored_version == 2
+                && s_config.audioVolume == 0;
+
+            const bool migrate_version_3_default =
+                stored_version == 3
+                && s_config.audioVolume == 50;
+
+            if (
+                migrate_version_2_default
+                || migrate_version_3_default
+            ) {
+                s_config.audioVolume =
+                    DEFAULT_AUDIO_VOLUME;
+            }
+
+            local_persist_save();
+        }
     }
-    if (status <= 0) {
-        LOG("Config not loaded from persistent storage (%d)", status);
+
+    if (status == sizeof(s_config)) {
+        LOG("Loaded config from persistent storage");
+    } else {
+        // Version 1 used an incompatible, much larger structure.
+        // Keep the new compact defaults; notably, the alarm beep is now
+        // audible instead of silently defaulting to zero.
+        LOG(
+            "Using current config defaults "
+            "(stored version %ld, status %d)",
+            (long)stored_version,
+            status
+        );
     }
 }
 

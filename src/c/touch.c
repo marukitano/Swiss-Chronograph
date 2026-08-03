@@ -36,6 +36,8 @@
 #define ARROW_BOUNCE_DAMPING_DEN 100
 #define ARROW_FILL_MS 120
 #define RUNNING_FRAME_MS 50
+#define ALARM_BLINK_PERIOD_MS 1600
+#define ALARM_BLINK_VISIBLE_MS 1100
 #define RUNNING_TRANSITION_MS 24
 #define RUNNING_TRANSITION_STEPS 12
 #define RUN_ACTION_MARKER_WIDTH 5
@@ -74,6 +76,8 @@ static GBitmap *s_ppf_digit_sheet;
 static GBitmap *s_ppf_digits[PPF_DIGIT_COUNT];
 static GBitmap *s_ppf_digit_sheet_white;
 static GBitmap *s_ppf_digits_white[PPF_DIGIT_COUNT];
+static GBitmap *s_ppf_digit_sheet_alarm;
+static GBitmap *s_ppf_digits_alarm[PPF_DIGIT_COUNT];
 static TouchSelectionCallback s_callback;
 static TouchServiceHandler s_parent_handler;
 static TouchAutoStartCallback s_auto_start_callback;
@@ -90,6 +94,7 @@ static AppTimer *s_arrow_anim_timer;
 static bool s_arrow_animation_started;
 static void start_arrow_animation(void);
 static void stop_arrow_animation(void);
+static void cancel_arrow_fill(void);
 static uint8_t s_arrow_anim_phase;
 static AppTimer *s_arrow_bounce_timer;
 static int16_t s_arrow_drag_offset;
@@ -99,6 +104,7 @@ static AppTimer *s_arrow_fill_timer;
 static uint8_t s_arrow_fill_count;
 static int8_t s_arrow_fill_wave_index;
 static bool s_running_screen;
+static bool s_running_alarm_display;
 static bool s_running_transition;
 static uint8_t s_running_transition_step;
 static uint32_t s_running_duration_ms;
@@ -257,15 +263,31 @@ static void start_ruler_roll(int direction) {
 }
 
 void touch_adjust_minutes(int delta) {
-    if (s_running_screen) {
+    if (s_running_screen || delta == 0) {
         return;
     }
 
-    if (delta != 0) {
-        start_arrow_animation();
-    }
+    // Hardware Up/Down changes only the minute detent. It must not start
+    // the decorative chevron wave that belongs to the touch-release
+    // auto-start sequence.
+    cancel_arrow_fill();
+    stop_arrow_animation();
 
-    set_minutes(s_selected_minutes + delta, true);
+    const int16_t previous_minutes =
+        s_selected_minutes;
+
+    set_minutes(
+        s_selected_minutes + delta,
+        true
+    );
+
+    if (s_selected_minutes > previous_minutes) {
+        start_ruler_roll(1);
+    } else if (
+        s_selected_minutes < previous_minutes
+    ) {
+        start_ruler_roll(-1);
+    }
 }
 
 void touch_refresh(void) {
@@ -349,7 +371,6 @@ static void draw_chevron_down(
     );
 }
 
-static void cancel_arrow_fill(void);
 static void start_arrow_fill(void);
 
 static void finish_arrow_bounce(void) {
@@ -1072,6 +1093,7 @@ void touch_start_running(uint32_t duration_seconds) {
 
     s_touching = false;
     s_running_screen = true;
+    s_running_alarm_display = false;
     s_running_transition = true;
     s_running_transition_step = 0;
     s_running_duration_ms = duration_seconds * 1000U;
@@ -1099,7 +1121,7 @@ void touch_restore_running(
     uint32_t remaining_seconds,
     bool paused
 ) {
-    if (s_layer == NULL || remaining_seconds == 0) {
+    if (s_layer == NULL) {
         return;
     }
 
@@ -1115,6 +1137,7 @@ void touch_restore_running(
 
     s_touching = false;
     s_running_screen = true;
+    s_running_alarm_display = false;
 
     // Restore directly to the finished run screen. The top-slide animation
     // belongs only to a newly started timer.
@@ -1139,18 +1162,70 @@ void touch_restore_running(
     }
 
     cancel_running_timers();
-    schedule_run_controls_entry();
 
-    if (!paused) {
-        s_running_frame_timer = app_timer_register(
-            RUNNING_FRAME_MS,
-            running_frame_tick,
-            NULL
-        );
+    if (remaining_seconds > 0) {
+        schedule_run_controls_entry();
+
+        if (!paused) {
+            s_running_frame_timer = app_timer_register(
+                RUNNING_FRAME_MS,
+                running_frame_tick,
+                NULL
+            );
+        }
+    } else {
+        // A wakeup alarm is restored at exactly 00:00. Keep the countdown
+        // screen visible, but do not show normal pause/minimise controls.
+        hide_run_controls();
+        hide_pause_controls();
     }
 
     layer_mark_dirty(s_layer);
 }
+
+void touch_show_alarm(uint32_t duration_seconds) {
+    if (s_layer == NULL || duration_seconds == 0) {
+        return;
+    }
+
+    cancel_arrow_fill();
+    stop_arrow_animation();
+    cancel_run_action_animation();
+    cancel_minimize_action_animation();
+    hide_pause_controls();
+    hide_run_controls();
+
+    if (s_arrow_bounce_timer != NULL) {
+        app_timer_cancel(s_arrow_bounce_timer);
+        s_arrow_bounce_timer = NULL;
+    }
+
+    s_touching = false;
+    s_running_screen = true;
+    s_running_transition = false;
+    s_running_transition_step = RUNNING_TRANSITION_STEPS;
+    s_running_alarm_display = true;
+    s_running_duration_ms = duration_seconds * 1000U;
+    s_running_started_ms = monotonic_ms();
+    s_running_paused = false;
+    s_running_paused_remaining_ms = 0;
+
+    if (s_touch_is_enabled) {
+        touch_service_unsubscribe();
+        s_touch_is_enabled = false;
+    }
+
+    cancel_running_timers();
+
+    s_running_frame_timer = app_timer_register(
+        RUNNING_FRAME_MS,
+        running_frame_tick,
+        NULL
+    );
+
+    layer_mark_dirty(s_layer);
+}
+
 
 bool touch_running_screen_active(void) {
     return s_running_screen;
@@ -1361,6 +1436,7 @@ void touch_reset_idle(void) {
     // Leave running mode first. The parent timer logic may ignore selection
     // callbacks while the countdown or alarm is still considered active.
     s_running_screen = false;
+    s_running_alarm_display = false;
     s_running_transition = false;
     s_running_transition_step = 0;
     s_running_duration_ms = 0;
@@ -1648,12 +1724,10 @@ static int16_t ppf_text_width(const char *text) {
 static void draw_ppf_colon(
     GContext *ctx,
     int16_t x,
-    int16_t y
+    int16_t y,
+    GColor color
 ) {
-    graphics_context_set_fill_color(
-        ctx,
-        theme_foreground_color()
-    );
+    graphics_context_set_fill_color(ctx, color);
 
     graphics_fill_rect(
         ctx,
@@ -1680,21 +1754,79 @@ static void draw_ppf_colon(
     );
 }
 
+static bool set_alarm_digit_color(GColor color) {
+    if (s_ppf_digit_sheet_alarm == NULL) {
+        return false;
+    }
+
+    GColor *palette =
+        gbitmap_get_palette(s_ppf_digit_sheet_alarm);
+
+    if (palette == NULL) {
+        return false;
+    }
+
+    size_t palette_size = 0;
+
+    switch (gbitmap_get_format(s_ppf_digit_sheet_alarm)) {
+    case GBitmapFormat1BitPalette:
+        palette_size = 2;
+        break;
+    case GBitmapFormat2BitPalette:
+        palette_size = 4;
+        break;
+    case GBitmapFormat4BitPalette:
+        palette_size = 16;
+        break;
+    default:
+        return false;
+    }
+
+    bool changed_opaque_color = false;
+
+    for (size_t index = 0;
+         index < palette_size;
+         ++index) {
+        if (!gcolor_equal(palette[index], GColorClear)) {
+            palette[index] = color;
+            changed_opaque_color = true;
+        }
+    }
+
+    return changed_opaque_color;
+}
+
+
 static bool draw_ppf_text_centered(
     GContext *ctx,
     const char *text,
-    GRect frame
+    GRect frame,
+    GColor color,
+    bool alarm_style
 ) {
-    const bool use_white_sprite = !theme_is_light();
+    GBitmap **digits = NULL;
+    GBitmap *digit_sheet = NULL;
 
-    GBitmap **digits = use_white_sprite
-        ? s_ppf_digits_white
-        : s_ppf_digits;
+    if (alarm_style) {
+        if (!set_alarm_digit_color(color)) {
+            return false;
+        }
 
-    if ((use_white_sprite
-            && s_ppf_digit_sheet_white == NULL)
-        || (!use_white_sprite
-            && s_ppf_digit_sheet == NULL)) {
+        digits = s_ppf_digits_alarm;
+        digit_sheet = s_ppf_digit_sheet_alarm;
+    } else {
+        const bool use_white_sprite = !theme_is_light();
+
+        digits = use_white_sprite
+            ? s_ppf_digits_white
+            : s_ppf_digits;
+
+        digit_sheet = use_white_sprite
+            ? s_ppf_digit_sheet_white
+            : s_ppf_digit_sheet;
+    }
+
+    if (digit_sheet == NULL) {
         return false;
     }
 
@@ -1744,7 +1876,8 @@ static bool draw_ppf_text_centered(
             draw_ppf_colon(
                 ctx,
                 x,
-                y
+                y,
+                color
             );
             x += PPF_COLON_WIDTH;
         } else {
@@ -1759,11 +1892,15 @@ static bool draw_ppf_text_centered(
     return true;
 }
 
+
 static void create_ppf_digits(void) {
     s_ppf_digit_sheet = gbitmap_create_with_resource(
         RESOURCE_ID_PPF_DIGITS
     );
     s_ppf_digit_sheet_white = gbitmap_create_with_resource(
+        RESOURCE_ID_PPF_DIGITS_WHITE
+    );
+    s_ppf_digit_sheet_alarm = gbitmap_create_with_resource(
         RESOURCE_ID_PPF_DIGITS_WHITE
     );
 
@@ -1777,6 +1914,11 @@ static void create_ppf_digits(void) {
         if (s_ppf_digit_sheet_white != NULL) {
             gbitmap_destroy(s_ppf_digit_sheet_white);
             s_ppf_digit_sheet_white = NULL;
+        }
+
+        if (s_ppf_digit_sheet_alarm != NULL) {
+            gbitmap_destroy(s_ppf_digit_sheet_alarm);
+            s_ppf_digit_sheet_alarm = NULL;
         }
 
         return;
@@ -1803,8 +1945,17 @@ static void create_ppf_digits(void) {
                 s_ppf_digit_sheet_white,
                 glyph
             );
+
+        if (s_ppf_digit_sheet_alarm != NULL) {
+            s_ppf_digits_alarm[digit] =
+                gbitmap_create_as_sub_bitmap(
+                    s_ppf_digit_sheet_alarm,
+                    glyph
+                );
+        }
     }
 }
+
 
 static void destroy_ppf_digits(void) {
     for (uint8_t digit = 0;
@@ -1819,6 +1970,11 @@ static void destroy_ppf_digits(void) {
             gbitmap_destroy(s_ppf_digits_white[digit]);
             s_ppf_digits_white[digit] = NULL;
         }
+
+        if (s_ppf_digits_alarm[digit] != NULL) {
+            gbitmap_destroy(s_ppf_digits_alarm[digit]);
+            s_ppf_digits_alarm[digit] = NULL;
+        }
     }
 
     if (s_ppf_digit_sheet != NULL) {
@@ -1830,7 +1986,13 @@ static void destroy_ppf_digits(void) {
         gbitmap_destroy(s_ppf_digit_sheet_white);
         s_ppf_digit_sheet_white = NULL;
     }
+
+    if (s_ppf_digit_sheet_alarm != NULL) {
+        gbitmap_destroy(s_ppf_digit_sheet_alarm);
+        s_ppf_digit_sheet_alarm = NULL;
+    }
 }
+
 
 static void draw_running_countdown(Layer *layer, GContext *ctx) {
     const GRect bounds = layer_get_bounds(layer);
@@ -1844,15 +2006,21 @@ static void draw_running_countdown(Layer *layer, GContext *ctx) {
     }
 
     const uint32_t remaining_ms = running_remaining_ms();
+    const bool alarm_display = s_running_alarm_display;
 
-    const uint32_t minutes = remaining_ms / 60000U;
-    const uint32_t seconds = (remaining_ms / 1000U) % 60U;
-    const uint32_t centiseconds = (remaining_ms % 1000U) / 10U;
+    const uint32_t display_ms = alarm_display
+        ? s_running_duration_ms
+        : remaining_ms;
+
+    const uint32_t minutes = display_ms / 60000U;
+    const uint32_t seconds = (display_ms / 1000U) % 60U;
+    const uint32_t centiseconds = (display_ms % 1000U) / 10U;
 
     char text[20];
 
     const bool show_centiseconds =
-        config_get()->showCentiseconds
+        !alarm_display
+        && config_get()->showCentiseconds
         && minutes < 100U;
 
     if (show_centiseconds) {
@@ -1881,33 +2049,50 @@ static void draw_running_countdown(Layer *layer, GContext *ctx) {
         48
     );
 
-    if (!draw_ppf_text_centered(
-    ctx,
-    text,
-    timer_frame
-)) {
-        graphics_context_set_text_color(
-            ctx,
-            theme_foreground_color()
-        );
+    const bool timer_visible =
+        !alarm_display
+        || (
+            monotonic_ms() % ALARM_BLINK_PERIOD_MS
+        ) < ALARM_BLINK_VISIBLE_MS;
 
-        graphics_draw_text(
+    if (timer_visible) {
+        const GColor timer_color = alarm_display
+            ? config_get()->ringColorRemaining
+            : theme_foreground_color();
+
+        if (!draw_ppf_text_centered(
             ctx,
             text,
-            fonts_get_system_font(
-                FONT_KEY_GOTHIC_28_BOLD
-            ),
             timer_frame,
-            GTextOverflowModeTrailingEllipsis,
-            GTextAlignmentCenter,
-            NULL
-        );
+            timer_color,
+            alarm_display
+        )) {
+            graphics_context_set_text_color(
+                ctx,
+                timer_color
+            );
+
+            graphics_draw_text(
+                ctx,
+                text,
+                fonts_get_system_font(
+                    FONT_KEY_GOTHIC_28_BOLD
+                ),
+                timer_frame,
+                GTextOverflowModeTrailingEllipsis,
+                GTextAlignmentCenter,
+                NULL
+            );
+        }
     }
 
-    draw_running_minimize_action(ctx);
-    draw_running_pause_controls(ctx, bounds);
-    draw_running_action_bar(ctx, bounds);
+    if (!alarm_display) {
+        draw_running_minimize_action(ctx);
+        draw_running_pause_controls(ctx, bounds);
+        draw_running_action_bar(ctx, bounds);
+    }
 }
+
 
 
 // Sideways Swiss shield. The point faces right.
@@ -2463,10 +2648,12 @@ static void draw_ruler(Layer *layer, GContext *ctx) {
     );
 
     if (!draw_ppf_text_centered(
-    ctx,
-    label,
-    selected_value_frame
-)) {
+        ctx,
+        label,
+        selected_value_frame,
+        theme_foreground_color(),
+        false
+    )) {
         graphics_context_set_text_color(
             ctx,
             theme_foreground_color()

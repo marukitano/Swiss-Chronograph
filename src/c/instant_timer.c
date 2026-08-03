@@ -389,6 +389,9 @@ static void alarm_start(void) {
     ASSERT(s_alarm_pulse_timer == NULL);
     ASSERT(!s_state.is_alarm_done);
     alarm_pulse_timer_handler(NULL);
+#if PBL_TOUCH
+    touch_show_alarm((uint32_t)s_state.alarm_duration);
+#endif
 }
 
 static void alarm_cancel_any_wakeup(void) {
@@ -423,7 +426,11 @@ static void alarm_schedule_any_wakeup(void) {
 
 /// Reset the alarm if necessary
 static void alarm_reset(void) {
-    s_state.is_alarm_done = stopwatch_get_alarm_time() == 0;
+    // Never mark an alarm as completed while it is actively pulsing.
+    if (!alarm_is_pulsing()) {
+        s_state.is_alarm_done =
+            stopwatch_get_alarm_time() == 0;
+    }
 }
 
 /******************************************************************************
@@ -1137,6 +1144,97 @@ static void down_click_handler(
 }
 
 #if PBL_TOUCH
+#define SIDE_BUTTON_HOLD_DELAY_MS 700
+#define SIDE_BUTTON_REPEAT_MS 143
+
+static AppTimer *s_side_button_hold_timer = NULL;
+static int s_side_button_hold_delta = 0;
+
+static void side_button_hold_cancel(void) {
+    if (s_side_button_hold_timer != NULL) {
+        app_timer_cancel(s_side_button_hold_timer);
+        s_side_button_hold_timer = NULL;
+    }
+
+    s_side_button_hold_delta = 0;
+}
+
+static void side_button_hold_tick(void *context) {
+    UNUSED(context);
+    s_side_button_hold_timer = NULL;
+
+    if (s_side_button_hold_delta == 0
+        || touch_running_screen_active()) {
+        side_button_hold_cancel();
+        return;
+    }
+
+    touch_adjust_minutes(s_side_button_hold_delta);
+
+    s_side_button_hold_timer = app_timer_register(
+        SIDE_BUTTON_REPEAT_MS,
+        side_button_hold_tick,
+        NULL
+    );
+
+    if (s_side_button_hold_timer == NULL) {
+        s_side_button_hold_delta = 0;
+    }
+}
+
+static void side_button_hold_start(int delta) {
+    side_button_hold_cancel();
+
+    if (delta == 0 || touch_running_screen_active()) {
+        return;
+    }
+
+    s_side_button_hold_delta = delta;
+    s_side_button_hold_timer = app_timer_register(
+        SIDE_BUTTON_HOLD_DELAY_MS,
+        side_button_hold_tick,
+        NULL
+    );
+
+    if (s_side_button_hold_timer == NULL) {
+        s_side_button_hold_delta = 0;
+    }
+}
+
+static void up_raw_down_handler(
+    ClickRecognizerRef recognizer,
+    void *context
+) {
+    UNUSED(recognizer);
+    UNUSED(context);
+
+    up_click_handler(NULL, NULL);
+    side_button_hold_start(1);
+}
+
+static void down_raw_down_handler(
+    ClickRecognizerRef recognizer,
+    void *context
+) {
+    UNUSED(recognizer);
+    UNUSED(context);
+
+    down_click_handler(NULL, NULL);
+    side_button_hold_start(-1);
+}
+
+static void side_button_raw_up_handler(
+    ClickRecognizerRef recognizer,
+    void *context
+) {
+    UNUSED(recognizer);
+    UNUSED(context);
+
+    side_button_hold_cancel();
+}
+#endif // PBL_TOUCH
+
+#if PBL_TOUCH
 static void run_screen_pause_toggle_callback(void) {
     // The alarm may begin during the short marker animation.
     if (alarm_is_pulsing()) {
@@ -1240,8 +1338,18 @@ static void back_release_click_handler(
 static void click_config_provider(void *context) {
     UNUSED(context);
 #if PBL_TOUCH
-    window_single_click_subscribe(BUTTON_ID_UP, up_click_handler);
-    window_single_click_subscribe(BUTTON_ID_DOWN, down_click_handler);
+    window_raw_click_subscribe(
+        BUTTON_ID_UP,
+        up_raw_down_handler,
+        side_button_raw_up_handler,
+        NULL
+    );
+    window_raw_click_subscribe(
+        BUTTON_ID_DOWN,
+        down_raw_down_handler,
+        side_button_raw_up_handler,
+        NULL
+    );
 #endif
     window_raw_click_subscribe(
         BUTTON_ID_SELECT,
@@ -1593,15 +1701,31 @@ static void main_window_load(Window *window) {
         s_state.alarm_wakeup_id = E_DOES_NOT_EXIST;
     }
 
+    // Capture the wakeup state before update_alarm_duration()
+    // can call alarm_reset(). At the scheduled wakeup, elapsed time is
+    // already equal to or greater than the selected duration.
+    const bool wakeup_alarm_due =
+        loaded_state
+        && (launch_reason() == APP_LAUNCH_WAKEUP)
+        && alarm_should_start();
+
 #if PBL_TOUCH
     const bool restore_run_screen =
         loaded_state
         && (s_state.alarm_duration > 0)
-        && (s_state.elapsed_time < s_state.alarm_duration);
+        && (
+            (s_state.elapsed_time < s_state.alarm_duration)
+            || wakeup_alarm_due
+        );
 
     if (restore_run_screen) {
         const time_t remaining_seconds =
-            s_state.alarm_duration - s_state.elapsed_time;
+            wakeup_alarm_due
+                ? 0
+                : (
+                    s_state.alarm_duration
+                    - s_state.elapsed_time
+                );
 
         touch_restore_running(
             (uint32_t)remaining_seconds,
@@ -1613,17 +1737,15 @@ static void main_window_load(Window *window) {
     s_save = false;
     s_mode = MODE_CTRL;
 
-    update_mode();
-    update_alarm_duration();
-    update_elapsed();
-
-    if (
-        (launch_reason() == APP_LAUNCH_WAKEUP)
-        && alarm_should_start()
-    ) {
+    // Start the alarm before normal UI updates. Those updates are allowed
+    // to reset expired, inactive alarms, but not an alarm that is pulsing.
+    if (wakeup_alarm_due) {
         alarm_start();
     }
 
+    update_mode();
+    update_alarm_duration();
+    update_elapsed();
     update_action_bar();
     alarm_cancel_any_wakeup();
 
@@ -1642,6 +1764,10 @@ static void main_window_load(Window *window) {
 
 static void main_window_unload(Window *window) {
     TRACE("main_window_unload");
+
+#if PBL_TOUCH
+    side_button_hold_cancel();
+#endif
 
     if (s_theme_shake_debounce_timer != NULL) {
         app_timer_cancel(s_theme_shake_debounce_timer);

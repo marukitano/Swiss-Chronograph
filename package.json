@@ -6,7 +6,8 @@
     "pebble-app",
     "timer",
     "countdown",
-    "smartwatch"
+    "smartwatch",
+    "pebble-time-2"
   ],
   "private": true,
   "dependencies": {
@@ -18,13 +19,7 @@
     "sdkVersion": "3",
     "enableMultiJS": true,
     "targetPlatforms": [
-      "basalt",
-      "aplite",
-      "chalk",
-      "diorite",
-      "emery",
-      "flint",
-      "gabbro"
+      "emery"
     ],
     "watchapp": {
       "watchface": false
@@ -42,23 +37,8 @@
           "file": "images/app_icon.png",
           "type": "bitmap",
           "name": "APP_ICON",
-          "memoryFormat": "1Bit",
-          "menuIcon": true,
           "targetPlatforms": [
-            "aplite",
-            "diorite",
-            "flint"
-          ]
-        },
-        {
-          "file": "images/app_icon.png",
-          "type": "bitmap",
-          "name": "APP_ICON",
-          "targetPlatforms": [
-            "basalt",
-            "chalk",
-            "emery",
-            "gabbro"
+            "emery"
           ]
         },
         {
@@ -99,7 +79,7 @@
       ]
     }
   },
-  "description": "A tactile Pebble countdown timer with a magnetic touch ruler and custom pixel display.",
+  "description": "A tactile countdown timer exclusively for Pebble Time 2, with a magnetic touch ruler and custom pixel display.",
   "license": "GPL-3.0-only",
   "homepage": "https://github.com/marukitano/Tap-timer",
   "repository": {

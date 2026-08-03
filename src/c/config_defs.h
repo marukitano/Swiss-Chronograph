@@ -13,7 +13,10 @@
     and don't change the messageKeys or meaning of existing data.
     Note lowest allowed value is 1.
 */
-#define PERSIST_CONFIG_VERSION (2)
+#define PERSIST_CONFIG_VERSION (4)
+
+// Audible by default on speaker-capable Pebbles.
+#define DEFAULT_AUDIO_VOLUME (100)
 
 /** Macro table defining all config data.
 
@@ -27,7 +30,7 @@
     MACRO(COLOR, GColor,              ringColorRemaining,           PBL_IF_COLOR_ELSE(GColorGreen, GColorWhite)) \
     MACRO(ENUM,  ThemeMode,           themeMode,                    ThemeMode_Shake) \
     MACRO(ENUM,  AlarmVibePattern,    alarmVibePattern,             AlarmVibePattern_Double) \
-    MACRO(INT,   uint8_t,             audioVolume,                  0) \
+    MACRO(INT,   uint8_t,             audioVolume,                  DEFAULT_AUDIO_VOLUME) \
     MACRO(BOOL,  bool,                showCentiseconds,             false) \
 /* end of X_CONFIG_OPTIONS */
 
