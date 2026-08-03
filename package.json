@@ -3,7 +3,10 @@
   "author": "marukitano",
   "version": "1.0.0",
   "keywords": [
-    "pebble-app"
+    "pebble-app",
+    "timer",
+    "countdown",
+    "smartwatch"
   ],
   "private": true,
   "dependencies": {
@@ -28,29 +31,8 @@
     },
     "messageKeys": [
       "themeMode",
-      "textColor",
-      "bgColor",
-      "bgColorImage",
-      "ringColorEmpty",
       "ringColorRemaining",
-      "ringColorOvertime",
-      "statusBarBgColor",
-      "statusBarTextColor",
-      "actionBarBgColor",
-      "actionBarIconColor",
-      "enableTouch",
-      "touchInputTimeoutDeciseconds",
-      "touchMinDurationMs",
-      "touchZoneAssignment",
-      "touchTimerMode",
       "alarmVibePattern",
-      "touchTimerSetMethod",
-      "touchDisableWhileInactive",
-      "touchLiftMinDurationMs",
-      "backlightDurationS",
-      "shortAlarmMinutes",
-      "shortStopwatchMinutes",
-      "roundIconOutline",
       "audioVolume",
       "showCentiseconds"
     ],
@@ -116,5 +98,15 @@
         }
       ]
     }
+  },
+  "description": "A tactile Pebble countdown timer with a magnetic touch ruler and custom pixel display.",
+  "license": "GPL-3.0-only",
+  "homepage": "https://github.com/marukitano/Tap-timer",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/marukitano/Tap-timer.git"
+  },
+  "bugs": {
+    "url": "https://github.com/marukitano/Tap-timer/issues"
   }
 }

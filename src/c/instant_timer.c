@@ -1,27 +1,10 @@
 // Copyright (c) 2026 Andrew Howe. All rights reserved. See LICENSE (GPLv3.0).
 
-/* TODO
-    - Allow more than 12 hours touch alarm setting, and/or make AM/PM clearer
-    - Enable touch on system touch-to-wake event?
-    - Config down-from-zero wrap values
-    - increase big font size on gabbro when FONT_KEY_GOTHIC_36_BOLD is available
-    - insert timeline pin
-        - "PKJS when running on the new Core app can just do Pebble.insertTimelinePin"
-        - https://github.com/CometDog/pebble-kite/blob/main/src/ts/timeline.ts#L6-L30
-        - https://github.com/coredevices/pypkjs/commit/b0f02e1bca2d005524c8ee46aaf45aac1531b816
-*/
-
 #include <pebble.h>
 #include <stdio.h>
 #include <time.h>
 
 #define DEBUG (0 || PBL_DEBUG)
-#define FORCE_BACKLIGHT_ON 0
-#if FORCE_BACKLIGHT_ON
-    #define DEMO_BACKLIGHT_ENABLE(on) light_enable(on)
-#else // !FORCE_BACKLIGHT_ON
-    #define DEMO_BACKLIGHT_ENABLE(on)
-#endif // !FORCE_BACKLIGHT_ON
 
 #include "config.h"
 #include "macros.h"
@@ -281,7 +264,6 @@ static time_t get_alarm_increment_diff(const IncrementMode incr, const bool add)
     return change;
 }
 
-/// Increment (add=True) or decrement (add=False) the alarm duration.
 /// Return the next mode that would be reached via increment (add=True) or decrement (add=False)
 static int get_next_mode(const bool add) {
     int next_mode = s_mode + (add ? 1 : -1);
@@ -301,7 +283,6 @@ static int get_next_mode(const bool add) {
     return MIN(next_mode, MODE_MAX);
 }
 
-/// Increment (add=True) or decrement (add=False) the mode.
 /******************************************************************************
  Alarm
 ******************************************************************************/
@@ -406,7 +387,7 @@ static bool alarm_should_start(void) {
 /// Trigger the alarm
 static void alarm_start(void) {
     ASSERT(s_alarm_pulse_timer == NULL);
-    ASSERT(!s_state.is_alarm_done);  // TODO fails sometimes
+    ASSERT(!s_state.is_alarm_done);
     alarm_pulse_timer_handler(NULL);
 }
 
@@ -808,7 +789,7 @@ static void update_tick_subscription(TimeUnits new_update_rate) {
         is_timer_enabled ? (s_state.alarm_duration - (s_state.elapsed_time % s_state.alarm_duration))
         : 0  // note: this condition avoids % 0
     );
-    const int32_t short_alarm_s = config->shortAlarmMinutes * SECONDS_PER_MINUTE;
+    const int32_t short_alarm_s = (3) * SECONDS_PER_MINUTE;
     const bool is_short_timer = is_timer_enabled && (time_to_next_alarm <= short_alarm_s);
 
     // Override the new update rate in some circumstances
@@ -848,16 +829,16 @@ static void update_tick_subscription(TimeUnits new_update_rate) {
     } else {  // is_counting
         if (new_update_rate == SECOND_UNIT) {
             // decide when to drop back to minutes
-            if ((!is_timer_enabled && (config->shortStopwatchMinutes == MAX_POWER_SAVING_THRESHOLD))
-                || (is_timer_enabled && (config->shortAlarmMinutes == MAX_POWER_SAVING_THRESHOLD))) {
+            if ((!is_timer_enabled && ((1) == MAX_POWER_SAVING_THRESHOLD))
+                || (is_timer_enabled && ((3) == MAX_POWER_SAVING_THRESHOLD))) {
                 schedule_tick_subscription_update(0, 0);  // unschedule; never drop back to minutes
             } else if (is_short_timer) {
                 // back to minutes when the timer expires
                 // (note actually, the "alarm_is_pulsing" condition will then kick in to stay on seconds)
                 schedule_tick_subscription_update(time_to_next_alarm * MS_PER_S, MINUTE_UNIT);
             } else {  // !is_short_timer
-                int32_t high_rate_timeout_ms = (config->backlightDurationS * MS_PER_S) + LIGHT_FADE_TIME_MS;
-                const int32_t short_stopwatch_s = config->shortStopwatchMinutes * SECONDS_PER_MINUTE;
+                int32_t high_rate_timeout_ms = ((3) * MS_PER_S) + LIGHT_FADE_TIME_MS;
+                const int32_t short_stopwatch_s = (1) * SECONDS_PER_MINUTE;
                 const bool is_short_stopwatch = !is_timer_enabled && (s_state.elapsed_time < short_stopwatch_s);
                 if (is_short_stopwatch) {
                     // back to minutes when the stopwatch gets high enough
@@ -868,12 +849,12 @@ static void update_tick_subscription(TimeUnits new_update_rate) {
                     high_rate_timeout_ms = (uint32_t) MAX(high_rate_timeout_ms,
                                                           ABSDIFF(alarm_get_pulse_end_time(), time(NULL)) * MS_PER_S);
                 } else {
-                    // back to minutes after config->backlightDurationS
+                    // return to minute updates after the normal high-rate timeout
                 }
                 schedule_tick_subscription_update(high_rate_timeout_ms, MINUTE_UNIT);
             }
         } else if (new_update_rate == MINUTE_UNIT) {
-            if (!is_timer_enabled || ((config->shortAlarmMinutes == 0) && (s_state.alarm_duration < s_state.elapsed_time))) {
+            if (!is_timer_enabled || (((3) == 0) && (s_state.alarm_duration < s_state.elapsed_time))) {
                 // stay on minutes indefinitely; back to seconds only on user activity
                 schedule_tick_subscription_update(0, 0);
             } else {
@@ -1009,7 +990,7 @@ static void handle_touch_event(const TouchEvent *event, void *context) {
 }
 
 static void enable_touch(void) {
-    touch_enable(config_get()->enableTouch);
+    touch_enable((true));
 }
 
 #else // !PBL_TOUCH
@@ -1313,8 +1294,7 @@ static void render_background(
     );
 }
 
-static void set_text_colors(const Config *config) {
-    UNUSED(config);
+static void set_text_colors(void) {
 
     const GColor foreground =
         theme_foreground_color();
@@ -1345,14 +1325,14 @@ static void set_text_colors(const Config *config) {
     );
 }
 
-static void set_bitmap_colors(const Config *config) {
+static void set_bitmap_colors(void) {
     const size_t action_fill_index = 3;
     const size_t action_line_index = 0;
 
     const GColor foreground =
         theme_foreground_color();
     const GColor outline =
-        config->roundIconOutline
+        (true)
             ? theme_background_color()
             : GColorClear;
 
@@ -1402,8 +1382,8 @@ static void new_config_handler(
 ) {
     theme_set_mode(config->themeMode);
 
-    set_text_colors(config);
-    set_bitmap_colors(config);
+    set_text_colors();
+    set_bitmap_colors();
 
 #if PBL_RECT
     action_bar_layer_set_background_color(
@@ -1413,7 +1393,7 @@ static void new_config_handler(
 #endif // PBL_RECT
 
 #if PBL_TOUCH
-    touch_enable(config->enableTouch);
+    touch_enable((true));
     touch_refresh();
 #endif // PBL_TOUCH
 
@@ -1739,11 +1719,9 @@ static void deinit(void) {
 }
 
 int main(void) {
-    DEMO_BACKLIGHT_ENABLE(true);
 
     init();
     app_event_loop();
     deinit();
 
-    DEMO_BACKLIGHT_ENABLE(false);
 }

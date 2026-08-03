@@ -16,12 +16,6 @@
 #define MAX(a,b) (((a)>(b))?(a):(b))
 #define ABS(a) (((a) >= 0) ? (a) : ((a) * -1))
 #define ABSDIFF(a, b) ((a) >= (b) ? (a) - (b) : (b) - (a))
-#define ABSDIFF_WRAP(a, b, max) MIN(ABS((a) - (b)), (max) + 1 - ABS((a) - (b)))
-#define SIGN(a) (((a) >= 0) ? 1 : -1)
-#define SQUARE(a) ((a) * (a))
-#define MUL_FRACT(val, numerator, denominator) (((val) * (numerator)) / (denominator))
-#define WITHIN(n, min, max)     ((n) >= (min) && (n) <= (max))
-#define WITHIN_EXCL(n, min, max) ((n) > (min) && (n) < (max))
 
 // Debugging
 #if DEBUG
@@ -46,7 +40,6 @@
 #define STATIC_ASSERT(condition) _Static_assert((condition), #condition)
 
 // Strings
-#define BOOL_TO_STR(boolean) (boolean ? "true" : "false")
 
 // Constants
 #define TIME_MAX INT32_MAX  // max value of time_t

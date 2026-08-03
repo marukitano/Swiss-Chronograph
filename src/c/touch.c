@@ -11,7 +11,6 @@
 #include "macros.h"
 #include "theme.h"
 
-#define TOUCH_ENABLED_DURATION_MS 3000
 #define PIXELS_PER_MINUTE 10
 
 #define MINUTE_DETENT_THRESHOLD_PX (PIXELS_PER_MINUTE / 2)
@@ -39,7 +38,6 @@
 #define RUNNING_FRAME_MS 50
 #define RUNNING_TRANSITION_MS 24
 #define RUNNING_TRANSITION_STEPS 12
-#define RUN_ACTION_AREA_WIDTH 24
 #define RUN_ACTION_MARKER_WIDTH 5
 #define RUN_ACTION_MARKER_HEIGHT 52
 #define RUN_ACTION_ANIM_MS 28
@@ -63,7 +61,6 @@
 #define PPF_COLON_TOP_Y 5
 #define PPF_COLON_BOTTOM_Y 13
 
-#define BRANDING_START_OFFSET_Y 20
 #define BRANDING_GAP_Y 3
 #define TINY_GLYPH_WIDTH 3
 #define TINY_GLYPH_HEIGHT 5
@@ -87,7 +84,6 @@ static int16_t s_last_y;
 static int16_t s_drag_accumulator;
 static int16_t s_selected_minutes;
 
-static AppTimer *s_touch_disable_timer;
 static AppTimer *s_ruler_roll_timer;
 static int16_t s_ruler_roll_offset;
 static AppTimer *s_arrow_anim_timer;
@@ -169,7 +165,6 @@ static void set_minutes(int16_t minutes, bool publish) {
     }
 }
 
-// TRUE_MINUTE_DETENTS_V1
 static void cancel_ruler_roll(void) {
     if (s_ruler_roll_timer != NULL) {
         app_timer_cancel(s_ruler_roll_timer);
@@ -1653,11 +1648,8 @@ static int16_t ppf_text_width(const char *text) {
 static void draw_ppf_colon(
     GContext *ctx,
     int16_t x,
-    int16_t y,
-    bool requested_white_digits
+    int16_t y
 ) {
-    UNUSED(requested_white_digits);
-
     graphics_context_set_fill_color(
         ctx,
         theme_foreground_color()
@@ -1691,11 +1683,8 @@ static void draw_ppf_colon(
 static bool draw_ppf_text_centered(
     GContext *ctx,
     const char *text,
-    GRect frame,
-    bool requested_white_digits
+    GRect frame
 ) {
-    UNUSED(requested_white_digits);
-
     const bool use_white_sprite = !theme_is_light();
 
     GBitmap **digits = use_white_sprite
@@ -1755,8 +1744,7 @@ static bool draw_ppf_text_centered(
             draw_ppf_colon(
                 ctx,
                 x,
-                y,
-                requested_white_digits
+                y
             );
             x += PPF_COLON_WIDTH;
         } else {
@@ -1863,7 +1851,6 @@ static void draw_running_countdown(Layer *layer, GContext *ctx) {
 
     char text[20];
 
-    // OPTIONAL_CENTISECONDS_SETTING_V1
     const bool show_centiseconds =
         config_get()->showCentiseconds
         && minutes < 100U;
@@ -1887,7 +1874,6 @@ static void draw_running_countdown(Layer *layer, GContext *ctx) {
         );
     }
 
-    // RUNNING_TIME_FULL_DISPLAY_CENTER_V1
     const GRect timer_frame = GRect(
         0,
         (bounds.size.h / 2) - 24,
@@ -1896,11 +1882,10 @@ static void draw_running_countdown(Layer *layer, GContext *ctx) {
     );
 
     if (!draw_ppf_text_centered(
-            ctx,
-            text,
-            timer_frame,
-            false
-        )) {
+    ctx,
+    text,
+    timer_frame
+)) {
         graphics_context_set_text_color(
             ctx,
             theme_foreground_color()
@@ -1925,7 +1910,6 @@ static void draw_running_countdown(Layer *layer, GContext *ctx) {
 }
 
 
-// SWISS_CHRONOGRAPH_BRANDING_V1
 // Sideways Swiss shield. The point faces right.
 static const char *EMBLEM_ROWS[EMBLEM_HEIGHT] = {
     ".RRRRRRRR.....",
@@ -2008,7 +1992,7 @@ static void draw_tiny_rotated_glyph(
     }
 }
 
-static int16_t draw_tiny_vertical_text(
+static void draw_tiny_vertical_text(
     GContext *ctx,
     const char *text,
     int16_t center_x,
@@ -2019,7 +2003,6 @@ static int16_t draw_tiny_vertical_text(
         center_x - (TINY_GLYPH_ROTATED_WIDTH / 2);
 
     int16_t glyph_bottom_y = bottom_y;
-    int16_t word_top_y = bottom_y;
 
     // Characters are placed upward. Reading from the bottom toward
     // the top therefore produces the normal character order.
@@ -2037,11 +2020,9 @@ static int16_t draw_tiny_vertical_text(
             color
         );
 
-        word_top_y = glyph_top_y;
         glyph_bottom_y -= TINY_GLYPH_ADVANCE_Y;
     }
 
-    return word_top_y;
 }
 
 static void draw_sideways_swiss_emblem(
@@ -2086,26 +2067,18 @@ static void draw_sideways_swiss_emblem(
 static void draw_swiss_chronograph_branding(
     GContext *ctx,
     GRect bounds,
-    int16_t ruler_left,
-    int16_t center_y,
     int16_t fine_offset
 ) {
-    UNUSED(ruler_left);
-    UNUSED(center_y);
-
-    // SWISS_CHRONOGRAPH_BRANDING_RIGHT_EDGE_V1
     // Two completely empty pixels remain between the right-facing
     // shield tip and the physical display edge.
     const int16_t emblem_left_x =
         bounds.size.w - EMBLEM_WIDTH - 2;
-    // BRANDING_CENTERED_ON_SWISS_CROSS_V1
     // The white cross spans emblem columns 1 through 9, so its
     // visual centre is column 5. The asymmetric shield outline,
     // including its right-facing point, is centred two pixels right.
     const int16_t brand_center_x =
         emblem_left_x + 5;
 
-    // SWISS_EMBLEM_VERTICALLY_CENTERED_V1
     // At minute zero, the shield itself is centred on the display.
     // The same scale offset moves it downward together with the ruler.
     const int32_t ruler_offset_y =
@@ -2147,7 +2120,7 @@ static void draw_swiss_chronograph_branding(
 
     // Readable from the right-hand side, bottom to top:
     // swiss -> shield -> Chronograph.
-    (void)draw_tiny_vertical_text(
+    draw_tiny_vertical_text(
         ctx,
         "swiss",
         brand_center_x,
@@ -2161,7 +2134,7 @@ static void draw_swiss_chronograph_branding(
         emblem_top_y
     );
 
-    (void)draw_tiny_vertical_text(
+    draw_tiny_vertical_text(
         ctx,
         "Chronograph",
         brand_center_x,
@@ -2171,11 +2144,6 @@ static void draw_swiss_chronograph_branding(
 }
 
 
-
-// READ_LINE_NUMBER_BUBBLE_V2
-// READ_LINE_BUBBLE_AT_LINE_V1
-// READ_LINE_BUBBLE_LARGER_V1
-// READ_LINE_BUBBLE_LARGER_V2
 static void draw_read_line_number_bubble(
     GContext *ctx,
     GRect bounds,
@@ -2351,9 +2319,6 @@ static void draw_read_line_number_bubble(
         ctx,
         config_get()->ringColorRemaining
     );
-    // READ_LINE_BUBBLE_THIN_OUTLINE_V1
-    // READ_LINE_BUBBLE_OUTLINE_3PX_V1
-    // READ_LINE_BUBBLE_OUTLINE_2PX_V1
     graphics_context_set_stroke_width(ctx, 2);
     graphics_draw_round_rect(
         ctx,
@@ -2463,8 +2428,6 @@ static void draw_ruler(Layer *layer, GContext *ctx) {
     draw_swiss_chronograph_branding(
         ctx,
         bounds,
-        ruler_left,
-        center_y,
         fine_offset
     );
 
@@ -2474,7 +2437,6 @@ static void draw_ruler(Layer *layer, GContext *ctx) {
         config_get()->ringColorRemaining
     );
 
-    // UNIFORM_SHORTER_READ_LINE_V1
     graphics_draw_line(
         ctx,
         GPoint(ruler_left, center_y),
@@ -2501,11 +2463,10 @@ static void draw_ruler(Layer *layer, GContext *ctx) {
     );
 
     if (!draw_ppf_text_centered(
-            ctx,
-            label,
-            selected_value_frame,
-            true
-        )) {
+    ctx,
+    label,
+    selected_value_frame
+)) {
         graphics_context_set_text_color(
             ctx,
             theme_foreground_color()
@@ -2666,34 +2627,6 @@ static void handle_touch_event(
     }
 }
 
-static void timeout_enable_callback(void *context) {
-    UNUSED(context);
-    s_touch_disable_timer = NULL;
-    touch_enable(false);
-}
-
-static void schedule_touch_disable(void) {
-    if (!config_get()->touchDisableWhileInactive) {
-        return;
-    }
-
-    if (s_touch_disable_timer == NULL) {
-        s_touch_disable_timer = app_timer_register(
-            TOUCH_ENABLED_DURATION_MS,
-            timeout_enable_callback,
-            NULL
-        );
-    } else {
-        app_timer_reschedule(
-            s_touch_disable_timer,
-            TOUCH_ENABLED_DURATION_MS
-        );
-    }
-}
-
-bool touch_in_progress(void) {
-    return s_touching;
-}
 
 void touch_enable(bool enable) {
     if (!touch_service_is_enabled() || s_layer == NULL) {
@@ -2710,7 +2643,6 @@ void touch_enable(bool enable) {
             s_touch_is_enabled = true;
         }
 
-        schedule_touch_disable();
     } else {
         cancel_ruler_roll();
 
@@ -2803,10 +2735,6 @@ void touch_destroy(void) {
     hide_run_controls();
     touch_enable(false);
 
-    if (s_touch_disable_timer != NULL) {
-        app_timer_cancel(s_touch_disable_timer);
-        s_touch_disable_timer = NULL;
-    }
 
     stop_arrow_animation();
 

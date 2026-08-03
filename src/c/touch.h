@@ -23,7 +23,6 @@ void touch_create(
 );
 void touch_destroy(void);
 void touch_enable(bool enable);
-bool touch_in_progress(void);
 void touch_adjust_minutes(int delta);
 void touch_refresh(void);
 
