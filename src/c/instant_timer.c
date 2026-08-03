@@ -1071,6 +1071,11 @@ static void restore_saved_timer(void) {
             !s_state.is_running
         );
 
+        // Re-establish persistence and the wakeup immediately after loading.
+        // This keeps the timer safe even if the app or watch stops while the
+        // restored timer is still open.
+        timer_persist_active_state();
+
         return;
     }
 
