@@ -36,6 +36,12 @@
     "resources": {
       "media": [
         {
+          "type": "bitmap",
+          "name": "APP_ICON",
+          "file": "images/app_icon~color.png",
+          "menuIcon": true
+        },
+        {
           "type": "raw",
           "name": "ALARM_PCM",
           "file": "sounds/alarm.pcm"
