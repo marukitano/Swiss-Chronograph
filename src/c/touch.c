@@ -25,6 +25,7 @@
 #define VISIBLE_TICKS 16
 
 #define READOUT_Y 24
+#define RULER_IDLE_Y (-1)
 
 #define ARROW_COUNT 4
 #define ARROW_STEP_Y 16
@@ -52,6 +53,8 @@
 #define RUN_CONTROLS_ENTRY_DELAY_MS 500
 #define RUN_CONTROLS_BOUNCE_MS 42
 #define RUN_CONTROLS_HIDDEN_OFFSET 30
+#define RULER_ENTRY_FRAME_MS 42
+#define RULER_ENTRY_HIDDEN_OFFSET 30
 #define PPF_DIGIT_COUNT 10
 #define PPF_DIGIT_WIDTH 24
 #define PPF_DIGIT_HEIGHT 21
@@ -91,6 +94,21 @@ static int16_t s_selected_minutes;
 
 static AppTimer *s_ruler_roll_timer;
 static int16_t s_ruler_roll_offset;
+static AppTimer *s_ruler_entry_timer;
+static uint8_t s_ruler_entry_step;
+static int16_t s_ruler_entry_offset =
+    RULER_ENTRY_HIDDEN_OFFSET;
+static bool s_ruler_force_visible;
+static bool s_ruler_entry_is_exiting;
+static const int8_t s_ruler_entry_offsets[] = {
+    RULER_ENTRY_HIDDEN_OFFSET,
+    18,
+    8,
+    -3,
+    2,
+    -1,
+    0
+};
 static AppTimer *s_arrow_anim_timer;
 static bool s_arrow_animation_started;
 static void start_arrow_animation(void);
@@ -154,15 +172,195 @@ static void publish_selection(void) {
     }
 }
 
+
+// RULER_LEFT_BOUNCE_V2
+static void reset_ruler_entry_animation(void) {
+    if (s_ruler_entry_timer != NULL) {
+        app_timer_cancel(s_ruler_entry_timer);
+        s_ruler_entry_timer = NULL;
+    }
+
+    s_ruler_entry_step = 0;
+    s_ruler_entry_offset =
+        RULER_ENTRY_HIDDEN_OFFSET;
+    s_ruler_force_visible = false;
+    s_ruler_entry_is_exiting = false;
+
+    if (s_layer != NULL) {
+        layer_mark_dirty(s_layer);
+    }
+}
+
+
+
+static void ruler_entry_animation_tick(void *context) {
+    UNUSED(context);
+    s_ruler_entry_timer = NULL;
+
+    if (s_layer == NULL) {
+        reset_ruler_entry_animation();
+        return;
+    }
+
+    if (!s_ruler_entry_is_exiting
+        && s_selected_minutes <= 0) {
+        reset_ruler_entry_animation();
+        return;
+    }
+
+    const uint8_t frame_count =
+        ARRAY_LENGTH(s_ruler_entry_offsets);
+
+    if (s_ruler_entry_is_exiting) {
+        if (s_ruler_entry_step < frame_count) {
+            const uint8_t reverse_index =
+                (uint8_t)(
+                    (frame_count - 1)
+                    - s_ruler_entry_step
+                );
+
+            s_ruler_entry_offset =
+                s_ruler_entry_offsets[
+                    reverse_index
+                ];
+
+            s_ruler_entry_step++;
+            layer_mark_dirty(s_layer);
+
+            s_ruler_entry_timer = app_timer_register(
+                RULER_ENTRY_FRAME_MS,
+                ruler_entry_animation_tick,
+                NULL
+            );
+
+            if (s_ruler_entry_timer == NULL) {
+                reset_ruler_entry_animation();
+            }
+
+            return;
+        }
+
+        reset_ruler_entry_animation();
+        return;
+    }
+
+    if (s_ruler_entry_step >= frame_count) {
+        s_ruler_entry_offset = 0;
+        s_ruler_force_visible = false;
+        layer_mark_dirty(s_layer);
+        return;
+    }
+
+    s_ruler_entry_offset =
+        s_ruler_entry_offsets[
+            s_ruler_entry_step
+        ];
+
+    s_ruler_entry_step++;
+    layer_mark_dirty(s_layer);
+
+    if (s_ruler_entry_step
+        < frame_count) {
+        s_ruler_entry_timer = app_timer_register(
+            RULER_ENTRY_FRAME_MS,
+            ruler_entry_animation_tick,
+            NULL
+        );
+
+        if (s_ruler_entry_timer == NULL) {
+            s_ruler_entry_offset = 0;
+            s_ruler_force_visible = false;
+            layer_mark_dirty(s_layer);
+        }
+    } else {
+        s_ruler_entry_offset = 0;
+        s_ruler_force_visible = false;
+        layer_mark_dirty(s_layer);
+    }
+}
+
+
+
+static void start_ruler_entry_animation(void) {
+    if (s_ruler_entry_timer != NULL) {
+        app_timer_cancel(s_ruler_entry_timer);
+        s_ruler_entry_timer = NULL;
+    }
+
+    s_ruler_force_visible = true;
+    s_ruler_entry_is_exiting = false;
+    s_ruler_entry_step = 1;
+    s_ruler_entry_offset =
+        s_ruler_entry_offsets[0];
+
+    if (s_layer != NULL) {
+        layer_mark_dirty(s_layer);
+    }
+
+    s_ruler_entry_timer = app_timer_register(
+        RULER_ENTRY_FRAME_MS,
+        ruler_entry_animation_tick,
+        NULL
+    );
+
+    if (s_ruler_entry_timer == NULL) {
+        s_ruler_entry_offset = 0;
+        s_ruler_force_visible = false;
+
+        if (s_layer != NULL) {
+            layer_mark_dirty(s_layer);
+        }
+    }
+}
+
+// RULER_LEFT_BOUNCE_REVERSE_V1
+static void start_ruler_exit_animation(void) {
+    if (s_ruler_entry_timer != NULL) {
+        app_timer_cancel(s_ruler_entry_timer);
+        s_ruler_entry_timer = NULL;
+    }
+
+    s_ruler_force_visible = true;
+    s_ruler_entry_is_exiting = true;
+    s_ruler_entry_step = 1;
+    s_ruler_entry_offset = 0;
+
+    if (s_layer != NULL) {
+        layer_mark_dirty(s_layer);
+    }
+
+    s_ruler_entry_timer = app_timer_register(
+        RULER_ENTRY_FRAME_MS,
+        ruler_entry_animation_tick,
+        NULL
+    );
+
+    if (s_ruler_entry_timer == NULL) {
+        reset_ruler_entry_animation();
+    }
+}
+
+
+
 static void set_minutes(int16_t minutes, bool publish) {
     const int16_t clamped = clamp_minutes(minutes);
-
+    const int16_t previous_minutes =
+        s_selected_minutes;
     if (clamped == s_selected_minutes) {
         return;
     }
 
     s_selected_minutes = clamped;
 
+    if (previous_minutes <= 0
+        && s_selected_minutes > 0) {
+        start_ruler_entry_animation();
+    } else if (previous_minutes > 0
+        && s_selected_minutes <= 0) {
+        start_ruler_exit_animation();
+    } else if (s_selected_minutes <= 0) {
+        reset_ruler_entry_animation();
+    }
     if (publish) {
         publish_selection();
     }
@@ -1452,6 +1650,7 @@ void touch_reset_idle(void) {
     s_arrow_bounce_velocity = 0;
     s_arrow_bounce_ticks = 0;
     s_selected_minutes = 0;
+    reset_ruler_entry_animation();
     publish_selection();
 
     if (s_layer != NULL) {
@@ -2288,57 +2487,68 @@ static void draw_swiss_chronograph_branding(
     GRect bounds,
     int16_t fine_offset
 ) {
-    // Two completely empty pixels remain between the right-facing
-    // shield tip and the physical display edge.
+    // SWISS_IDLE_LAYOUT_SCROLLING_V2
+    // At zero the complete branding block is exactly centred. Afterwards
+    // it rides on the ruler and follows both minute detents and the smooth
+    // ruler-roll animation.
     const int16_t emblem_left_x =
         bounds.size.w - EMBLEM_WIDTH - 2;
-    // The white cross spans emblem columns 1 through 9, so its
-    // visual centre is column 5. The asymmetric shield outline,
-    // including its right-facing point, is centred two pixels right.
+
     const int16_t brand_center_x =
         emblem_left_x + 5;
 
-    // At minute zero, the shield itself is centred on the display.
-    // The same scale offset moves it downward together with the ruler.
-    const int32_t ruler_offset_y =
-        ((int32_t)s_selected_minutes * TICK_SPACING)
-        + fine_offset;
-
-    const int16_t emblem_top_y =
-        ((bounds.size.h / 2)
-        - (EMBLEM_HEIGHT / 2)
-        + (int16_t)ruler_offset_y + 4);
-
-    const int16_t emblem_bottom_y =
-        emblem_top_y + EMBLEM_HEIGHT - 1;
-
-    // Rotated 3x5 text uses four vertical pixels per character,
-    // except that the final character needs no trailing gap.
     const int16_t swiss_height =
         (10 * TINY_GLYPH_ADVANCE_Y) - 1;
+
     const int16_t chronograph_height =
         (11 * TINY_GLYPH_ADVANCE_Y) - 1;
 
-    const int16_t chronograph_bottom_y =
-        emblem_top_y - BRANDING_GAP_Y - 1;
+    const int16_t branding_total_height =
+        chronograph_height
+        + BRANDING_GAP_Y
+        + EMBLEM_HEIGHT
+        + BRANDING_GAP_Y
+        + swiss_height;
+
+    const int32_t branding_offset_y =
+        ((int32_t)s_selected_minutes * TICK_SPACING)
+        + fine_offset;
+
+    const int16_t branding_top_y =
+        ((bounds.size.h - branding_total_height) / 2)
+        + (int16_t)branding_offset_y;
+
     const int16_t chronograph_top_y =
-        chronograph_bottom_y - chronograph_height + 1;
+        branding_top_y;
+
+    const int16_t chronograph_bottom_y =
+        chronograph_top_y
+        + chronograph_height
+        - 1;
+
+    const int16_t emblem_top_y =
+        chronograph_bottom_y
+        + BRANDING_GAP_Y
+        + 1;
+
+    const int16_t emblem_bottom_y =
+        emblem_top_y
+        + EMBLEM_HEIGHT
+        - 1;
 
     const int16_t swiss_top_y =
-        emblem_bottom_y + BRANDING_GAP_Y + 1;
-    const int16_t swiss_bottom_y =
-        swiss_top_y + swiss_height - 1;
+        emblem_bottom_y
+        + BRANDING_GAP_Y
+        + 1;
 
-    if (chronograph_top_y >= bounds.size.h
-        || swiss_bottom_y < 0) {
-        return;
-    }
+    const int16_t swiss_bottom_y =
+        swiss_top_y
+        + swiss_height
+        - 1;
 
     const GColor text_color =
         theme_foreground_color();
 
-    // Readable from the right-hand side, bottom to top:
-    // swiss made -> shield -> Chronograph.
     draw_tiny_vertical_text(
         ctx,
         "swiss made",
@@ -2363,6 +2573,7 @@ static void draw_swiss_chronograph_branding(
 }
 
 
+
 static void draw_read_line_number_bubble(
     GContext *ctx,
     GRect bounds,
@@ -2370,6 +2581,10 @@ static void draw_read_line_number_bubble(
     int16_t center_y,
     int16_t fine_offset
 ) {
+    const int16_t horizontal_offset =
+        ruler_left
+        - (bounds.size.w - RULER_WIDTH);
+
     enum {
         BADGE_FULL_HEIGHT = 25,
         BADGE_PADDING_X = 7,
@@ -2498,7 +2713,8 @@ static void draw_read_line_number_bubble(
     const int16_t label_right =
         bounds.size.w
         - MAJOR_TICK_LENGTH
-        - LABEL_RIGHT_GAP;
+        - LABEL_RIGHT_GAP
+        + horizontal_offset;
 
     // Keep the bubble centred on the label's natural position while
     // the label itself continues moving vertically with the ruler.
@@ -2583,11 +2799,32 @@ static void draw_ruler(Layer *layer, GContext *ctx) {
 
     const GRect bounds = layer_get_bounds(layer);
     const int16_t ruler_left = bounds.size.w - RULER_WIDTH;
-    const int16_t center_y = READOUT_Y;
+    const bool ruler_visible =
+        s_selected_minutes > 0
+        || s_ruler_force_visible;
+
+    // At zero the first ruler position is one pixel above the display.
+    // Drawing is also suppressed at zero, guaranteeing a completely clean
+    // initial screen even with two-pixel major tick strokes.
+    const int16_t center_y =
+        ruler_visible
+            ? READOUT_Y
+            : RULER_IDLE_Y;
 
     const int16_t fine_offset =
         s_ruler_roll_offset;
 
+    // Same damped entrance rhythm as the
+    // run-screen controls, entering from left.
+    const int16_t ruler_entry_x =
+        -s_ruler_entry_offset;
+
+    const int16_t animated_ruler_left =
+        ruler_left + ruler_entry_x;
+
+    // RULER_BOUNCE_EXTENDED_RIGHT_EDGE_V1
+    // Moving left extends every line back to the screen edge;
+    // rightward overshoot continues invisibly beyond the edge.
     graphics_context_set_fill_color(ctx, theme_background_color());
     graphics_fill_rect(
         ctx,
@@ -2604,53 +2841,55 @@ static void draw_ruler(Layer *layer, GContext *ctx) {
 
     char label[8];
 
-    for (int offset = -VISIBLE_TICKS; offset <= VISIBLE_TICKS; ++offset) {
-        const int minute = s_selected_minutes + offset;
+    if (ruler_visible) {
+        for (int offset = -VISIBLE_TICKS; offset <= VISIBLE_TICKS; ++offset) {
+            const int minute = s_selected_minutes + offset;
 
-        if (minute < MIN_MINUTES || minute > MAX_MINUTES) {
-            continue;
-        }
-
-        const int16_t y =
-            center_y - (offset * TICK_SPACING) + fine_offset;
-
-        if (y < -TICK_SPACING || y > bounds.size.h + TICK_SPACING) {
-            continue;
-        }
-
-        const bool major = (minute % 5) == 0;
-        const int16_t tick_length = major ? 22 : 11;
-
-        graphics_context_set_stroke_width(ctx, major ? 2 : 1);
-
-        graphics_draw_line(
-            ctx,
-            GPoint(bounds.size.w - tick_length, y),
-            GPoint(bounds.size.w - 1, y)
-        );
-
-        if (major) {
-            // RULER_ZERO_LABEL_HIDE_V1
-            if (minute <= 0) {
-                label[0] = '\0';
-            } else {
-                snprintf(label, sizeof(label), "%d", minute);
+            if (minute < MIN_MINUTES || minute > MAX_MINUTES) {
+                continue;
             }
 
-            graphics_draw_text(
+            const int16_t y =
+                center_y - (offset * TICK_SPACING) + fine_offset;
+
+            if (y < -TICK_SPACING || y > bounds.size.h + TICK_SPACING) {
+                continue;
+            }
+
+            const bool major = (minute % 5) == 0;
+            const int16_t tick_length = major ? 22 : 11;
+
+            graphics_context_set_stroke_width(ctx, major ? 2 : 1);
+
+            graphics_draw_line(
                 ctx,
-                label,
-                small_font,
-                GRect(
-                    ruler_left,
-                    y - 9,
-                    RULER_WIDTH - tick_length - 3,
-                    18
-                ),
-                GTextOverflowModeTrailingEllipsis,
-                GTextAlignmentRight,
-                NULL
+                GPoint(bounds.size.w - tick_length + ruler_entry_x, y),
+                GPoint(bounds.size.w - 1 + MAX(ruler_entry_x, 0), y)
             );
+
+            if (major) {
+                // RULER_ZERO_LABEL_HIDE_V1
+                if (minute <= 0) {
+                    label[0] = '\0';
+                } else {
+                    snprintf(label, sizeof(label), "%d", minute);
+                }
+
+                graphics_draw_text(
+                    ctx,
+                    label,
+                    small_font,
+                    GRect(
+                    animated_ruler_left,
+                    y - 9,
+                        RULER_WIDTH - tick_length - 3,
+                        18
+                    ),
+                    GTextOverflowModeTrailingEllipsis,
+                    GTextAlignmentRight,
+                    NULL
+                );
+            }
         }
     }
 
@@ -2660,70 +2899,72 @@ static void draw_ruler(Layer *layer, GContext *ctx) {
         fine_offset
     );
 
-    graphics_context_set_stroke_width(ctx, 3);
-    graphics_context_set_stroke_color(
-        ctx,
-        config_get()->ringColorRemaining
-    );
-
-    graphics_draw_line(
-        ctx,
-        GPoint(ruler_left, center_y),
-        GPoint(bounds.size.w - 1, center_y)
-    );
-
-    draw_read_line_number_bubble(
-        ctx,
-        bounds,
-        ruler_left,
-        center_y,
-        fine_offset
-    );
-
-
-    // Keep the zero position visually quiet. The large value
-    // appears only after at least one minute is selected.
-    if (s_selected_minutes > 0) {
-        // RULER_ZERO_LABEL_HIDE_V1
-        if (s_selected_minutes <= 0) {
-            label[0] = '\0';
-        } else {
-            snprintf(label, sizeof(label), "%d", s_selected_minutes);
-        }
-
-        // Center on the full display and exactly on the read line.
-        const GRect selected_value_frame = GRect(
-            0,
-            center_y - (PPF_DIGIT_HEIGHT / 2),
-            bounds.size.w,
-            PPF_DIGIT_HEIGHT
+    if (ruler_visible) {
+        graphics_context_set_stroke_width(ctx, 3);
+        graphics_context_set_stroke_color(
+            ctx,
+            config_get()->ringColorRemaining
         );
 
-        if (!draw_ppf_text_centered(
+        graphics_draw_line(
             ctx,
-            label,
-            selected_value_frame,
-            theme_foreground_color(),
-            false
-        )) {
-            graphics_context_set_text_color(
-                ctx,
-                theme_foreground_color()
+            GPoint(animated_ruler_left, center_y),
+            GPoint(bounds.size.w - 1 + MAX(ruler_entry_x, 0), center_y)
+        );
+
+        draw_read_line_number_bubble(
+            ctx,
+            bounds,
+            animated_ruler_left,
+            center_y,
+            fine_offset
+        );
+
+
+        // Keep the zero position visually quiet. The large value
+        // appears only after at least one minute is selected.
+        if (s_selected_minutes > 0) {
+            // RULER_ZERO_LABEL_HIDE_V1
+            if (s_selected_minutes <= 0) {
+                label[0] = '\0';
+            } else {
+                snprintf(label, sizeof(label), "%d", s_selected_minutes);
+            }
+
+            // Center on the full display and exactly on the read line.
+            const GRect selected_value_frame = GRect(
+                0,
+                center_y - (PPF_DIGIT_HEIGHT / 2),
+                bounds.size.w,
+                PPF_DIGIT_HEIGHT
             );
 
-            graphics_draw_text(
+            if (!draw_ppf_text_centered(
                 ctx,
                 label,
-                fonts_get_system_font(
-                    FONT_KEY_GOTHIC_28_BOLD
-                ),
                 selected_value_frame,
-                GTextOverflowModeTrailingEllipsis,
-                GTextAlignmentCenter,
-                NULL
-            );
-        }
+                theme_foreground_color(),
+                false
+            )) {
+                graphics_context_set_text_color(
+                    ctx,
+                    theme_foreground_color()
+                );
 
+                graphics_draw_text(
+                    ctx,
+                    label,
+                    fonts_get_system_font(
+                        FONT_KEY_GOTHIC_28_BOLD
+                    ),
+                    selected_value_frame,
+                    GTextOverflowModeTrailingEllipsis,
+                    GTextAlignmentCenter,
+                    NULL
+                );
+            }
+
+        }
     }
 
     const int16_t arrow_center_x = bounds.size.w / 2;
@@ -2914,6 +3155,12 @@ void touch_create(
     s_drag_accumulator = 0;
     s_ruler_roll_timer = NULL;
     s_ruler_roll_offset = 0;
+    s_ruler_entry_timer = NULL;
+    s_ruler_entry_step = 0;
+    s_ruler_entry_offset =
+        RULER_ENTRY_HIDDEN_OFFSET;
+    s_ruler_force_visible = false;
+    s_ruler_entry_is_exiting = false;
     s_arrow_drag_offset = 0;
     s_arrow_bounce_velocity = 0;
     s_arrow_bounce_timer = NULL;
@@ -2964,6 +3211,7 @@ void touch_create(
 }
 
 void touch_destroy(void) {
+    reset_ruler_entry_animation();
     cancel_ruler_roll();
     if (s_layer == NULL) {
         return;
