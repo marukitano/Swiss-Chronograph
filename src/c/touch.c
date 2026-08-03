@@ -26,7 +26,7 @@
 
 #define READOUT_Y 36
 
-#define ARROW_COUNT 6
+#define ARROW_COUNT 4
 #define ARROW_STEP_Y 16
 #define ARROW_HALF_HEIGHT 7
 #define ARROW_ANIM_MS 120
@@ -36,8 +36,7 @@
 #define ARROW_BOUNCE_DAMPING_DEN 100
 #define ARROW_FILL_MS 120
 #define RUNNING_FRAME_MS 50
-#define ALARM_BLINK_PERIOD_MS 1600
-#define ALARM_BLINK_VISIBLE_MS 1100
+#define ALARM_INVERT_INTERVAL_MS 1000
 #define RUNNING_TRANSITION_MS 24
 #define RUNNING_TRANSITION_STEPS 12
 #define RUN_ACTION_MARKER_WIDTH 5
@@ -1996,9 +1995,50 @@ static void destroy_ppf_digits(void) {
 
 static void draw_running_countdown(Layer *layer, GContext *ctx) {
     const GRect bounds = layer_get_bounds(layer);
+    const bool alarm_display = s_running_alarm_display;
 
-    graphics_context_set_fill_color(ctx, theme_background_color());
-    graphics_fill_rect(ctx, bounds, 0, GCornerNone);
+    // Alarm inversion starts with a light screen and changes every second.
+    // Use the alarm start timestamp so the first phase is deterministic
+    // instead of depending on the watch's global monotonic clock phase.
+    const uint32_t alarm_elapsed_ms = alarm_display
+        ? monotonic_ms() - s_running_started_ms
+        : 0;
+
+    const bool alarm_dark_phase =
+        alarm_display
+        && (
+            (
+                alarm_elapsed_ms
+                / ALARM_INVERT_INTERVAL_MS
+            ) % 2U
+        ) != 0;
+
+    const GColor background_color = alarm_display
+        ? (
+            alarm_dark_phase
+                ? GColorBlack
+                : GColorWhite
+        )
+        : theme_background_color();
+
+    const GColor timer_color = alarm_display
+        ? (
+            alarm_dark_phase
+                ? GColorWhite
+                : GColorBlack
+        )
+        : theme_foreground_color();
+
+    graphics_context_set_fill_color(
+        ctx,
+        background_color
+    );
+    graphics_fill_rect(
+        ctx,
+        bounds,
+        0,
+        GCornerNone
+    );
 
     if (s_running_transition) {
         draw_top_slide_transition(ctx, bounds);
@@ -2006,15 +2046,16 @@ static void draw_running_countdown(Layer *layer, GContext *ctx) {
     }
 
     const uint32_t remaining_ms = running_remaining_ms();
-    const bool alarm_display = s_running_alarm_display;
 
     const uint32_t display_ms = alarm_display
         ? s_running_duration_ms
         : remaining_ms;
 
     const uint32_t minutes = display_ms / 60000U;
-    const uint32_t seconds = (display_ms / 1000U) % 60U;
-    const uint32_t centiseconds = (display_ms % 1000U) / 10U;
+    const uint32_t seconds =
+        (display_ms / 1000U) % 60U;
+    const uint32_t centiseconds =
+        (display_ms % 1000U) / 10U;
 
     char text[20];
 
@@ -2049,41 +2090,29 @@ static void draw_running_countdown(Layer *layer, GContext *ctx) {
         48
     );
 
-    const bool timer_visible =
-        !alarm_display
-        || (
-            monotonic_ms() % ALARM_BLINK_PERIOD_MS
-        ) < ALARM_BLINK_VISIBLE_MS;
+    if (!draw_ppf_text_centered(
+        ctx,
+        text,
+        timer_frame,
+        timer_color,
+        alarm_display
+    )) {
+        graphics_context_set_text_color(
+            ctx,
+            timer_color
+        );
 
-    if (timer_visible) {
-        const GColor timer_color = alarm_display
-            ? config_get()->ringColorRemaining
-            : theme_foreground_color();
-
-        if (!draw_ppf_text_centered(
+        graphics_draw_text(
             ctx,
             text,
+            fonts_get_system_font(
+                FONT_KEY_GOTHIC_28_BOLD
+            ),
             timer_frame,
-            timer_color,
-            alarm_display
-        )) {
-            graphics_context_set_text_color(
-                ctx,
-                timer_color
-            );
-
-            graphics_draw_text(
-                ctx,
-                text,
-                fonts_get_system_font(
-                    FONT_KEY_GOTHIC_28_BOLD
-                ),
-                timer_frame,
-                GTextOverflowModeTrailingEllipsis,
-                GTextAlignmentCenter,
-                NULL
-            );
-        }
+            GTextOverflowModeTrailingEllipsis,
+            GTextAlignmentCenter,
+            NULL
+        );
     }
 
     if (!alarm_display) {
