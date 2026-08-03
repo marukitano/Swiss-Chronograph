@@ -62,7 +62,27 @@ static void local_persist_save(void) {
  Private methods; Receive config from phone
 ******************************************************************************/
 
-// A hack to work around https://github.com/pebble-dev/clay/issues/28. Only interprets the first digit.
+#define RECEIVE_CONFIG(message_key, convert) MACRO_START \
+    const Tuple *tuple = dict_find(iter, MESSAGE_KEY_##message_key); \
+    if (tuple) { \
+        s_config.message_key = convert; \
+    } else { \
+        LOG("ERR: " #message_key); \
+    } \
+MACRO_END
+
+#define RECEIVE_CONFIG_BOOL(message_key) \
+    RECEIVE_CONFIG(message_key, (tuple->value->int32 == 1))
+
+#define RECEIVE_CONFIG_COLOR(message_key) \
+    RECEIVE_CONFIG(message_key, GColorFromHEX(tuple->value->int32))
+
+#define RECEIVE_CONFIG_INT(message_key) \
+    RECEIVE_CONFIG(message_key, tuple->value->int32)
+
+// Clay enum workaround: interpret the first digit of the submitted value.
+#define RECEIVE_CONFIG_ENUM(message_key) \
+    RECEIVE_CONFIG(message_key, (tuple->value->int32 - '0'))
 
 static void inbox_received_handler(DictionaryIterator *iter, void *context) {
     Config saved_config = s_config;

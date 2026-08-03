@@ -780,8 +780,6 @@ static void minute_tick_timer_subscribe(bool subscribe) {
 */
 static void update_tick_subscription(TimeUnits new_update_rate) {
     TRACE("update_tick_subscription");
-    const Config* config = config_get();
-
     const bool is_timer_enabled = (s_state.alarm_duration > 0);
     // Time until the elapsed time is close to a multiple of the alarm duration
     // i.e. the green or red ring is close to completion.
@@ -789,7 +787,7 @@ static void update_tick_subscription(TimeUnits new_update_rate) {
         is_timer_enabled ? (s_state.alarm_duration - (s_state.elapsed_time % s_state.alarm_duration))
         : 0  // note: this condition avoids % 0
     );
-    const int32_t short_alarm_s = (3) * SECONDS_PER_MINUTE;
+    const int32_t short_alarm_s = 3 * SECONDS_PER_MINUTE;
     const bool is_short_timer = is_timer_enabled && (time_to_next_alarm <= short_alarm_s);
 
     // Override the new update rate in some circumstances
@@ -829,16 +827,13 @@ static void update_tick_subscription(TimeUnits new_update_rate) {
     } else {  // is_counting
         if (new_update_rate == SECOND_UNIT) {
             // decide when to drop back to minutes
-            if ((!is_timer_enabled && ((1) == MAX_POWER_SAVING_THRESHOLD))
-                || (is_timer_enabled && ((3) == MAX_POWER_SAVING_THRESHOLD))) {
-                schedule_tick_subscription_update(0, 0);  // unschedule; never drop back to minutes
-            } else if (is_short_timer) {
+            if (is_short_timer) {
                 // back to minutes when the timer expires
                 // (note actually, the "alarm_is_pulsing" condition will then kick in to stay on seconds)
                 schedule_tick_subscription_update(time_to_next_alarm * MS_PER_S, MINUTE_UNIT);
             } else {  // !is_short_timer
-                int32_t high_rate_timeout_ms = ((3) * MS_PER_S) + LIGHT_FADE_TIME_MS;
-                const int32_t short_stopwatch_s = (1) * SECONDS_PER_MINUTE;
+                int32_t high_rate_timeout_ms = (3 * MS_PER_S) + LIGHT_FADE_TIME_MS;
+                const int32_t short_stopwatch_s = SECONDS_PER_MINUTE;
                 const bool is_short_stopwatch = !is_timer_enabled && (s_state.elapsed_time < short_stopwatch_s);
                 if (is_short_stopwatch) {
                     // back to minutes when the stopwatch gets high enough
@@ -854,7 +849,7 @@ static void update_tick_subscription(TimeUnits new_update_rate) {
                 schedule_tick_subscription_update(high_rate_timeout_ms, MINUTE_UNIT);
             }
         } else if (new_update_rate == MINUTE_UNIT) {
-            if (!is_timer_enabled || (((3) == 0) && (s_state.alarm_duration < s_state.elapsed_time))) {
+            if (!is_timer_enabled) {
                 // stay on minutes indefinitely; back to seconds only on user activity
                 schedule_tick_subscription_update(0, 0);
             } else {
