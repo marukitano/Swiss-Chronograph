@@ -40,10 +40,12 @@ Maru**
 - Pebble SDK platform: **`emery`**
 - Vertical touch ruler from 0 to 180 minutes
 - Stable one-minute detents
+- Kinetic after-scroll for fast ruler swipes
 - One-swipe selection and automatic start animation
 - Four centred animated chevrons
 - Large custom PPF pixel digits
 - Quiet zero position without a large `0`
+- Configurable ruler and branding placement on the left or right edge
 - `MM:SS` countdown
 - Optional hundredths below 100 minutes
 - Pause and resume
@@ -51,6 +53,7 @@ Maru**
 - Delete the timer while paused
 - Minimise a running or paused timer
 - Persistent timer state and wakeup alarm
+- Immediate state persistence for restart and crash resilience
 - Light, Dark and Shake themes
 - Independently configurable read-line colour
 - Configurable vibration pattern and alarm volume
@@ -160,10 +163,12 @@ Maru**
 - Pebble-SDK-Plattform: **`emery`**
 - Vertikales Touch-Lineal von 0 bis 180 Minuten
 - Stabile Ein-Minuten-Rastung
+- Kinetischer Nachlauf bei schnellen Wischbewegungen
 - Auswahl mit einem Swipe und automatische Startanimation
 - Vier zentrierte animierte V-Pfeile
 - Grosse eigene PPF-Pixelziffern
 - Ruhiger Nullzustand ohne grosse `0`
+- Lineal und Branding wahlweise am linken oder rechten Rand
 - `MM:SS`-Countdown
 - Optionale Hundertstelsekunden unter 100 Minuten
 - Pausieren und fortsetzen
@@ -171,6 +176,7 @@ Maru**
 - Im Pausenmodus den Timer löschen
 - Laufenden oder pausierten Timer minimieren
 - Gespeicherter Timerzustand und Wakeup-Alarm
+- Sofortige Zustandssicherung für Neustarts und Abstürze
 - Helles, dunkles und Shake-Theme
 - Unabhängig einstellbare Farbe des Ablesestrichs
 - Einstellbares Vibrationsmuster und Alarm-Lautstärke

@@ -36,7 +36,8 @@
 #define ARROW_BOUNCE_DAMPING_NUM 72
 #define ARROW_BOUNCE_DAMPING_DEN 100
 #define ARROW_FILL_MS 120
-#define RUNNING_FRAME_MS 50
+#define RUNNING_FRAME_FAST_MS 50
+#define RUNNING_FRAME_SLOW_MS 250
 #define ALARM_INVERT_INTERVAL_MS 1000
 #define RUNNING_TRANSITION_MS 24
 #define RUNNING_TRANSITION_STEPS 12
@@ -62,7 +63,6 @@
 #define RULER_FLING_STOP_SPEED_Q8 (RULER_FLING_Q8 / 2)
 #define RULER_FLING_FRICTION_NUM 92
 #define RULER_FLING_FRICTION_DEN 100
-// RULER_FLING_STRONGER_V1
 #define PPF_DIGIT_COUNT 10
 #define PPF_DIGIT_WIDTH 24
 #define PPF_DIGIT_HEIGHT 21
@@ -185,8 +185,6 @@ static void publish_selection(void) {
     }
 }
 
-
-// RULER_LEFT_BOUNCE_V2
 static void reset_ruler_entry_animation(void) {
     if (s_ruler_entry_timer != NULL) {
         app_timer_cancel(s_ruler_entry_timer);
@@ -203,8 +201,6 @@ static void reset_ruler_entry_animation(void) {
         layer_mark_dirty(s_layer);
     }
 }
-
-
 
 static void ruler_entry_animation_tick(void *context) {
     UNUSED(context);
@@ -292,8 +288,6 @@ static void ruler_entry_animation_tick(void *context) {
     }
 }
 
-
-
 static void start_ruler_entry_animation(void) {
     if (s_ruler_entry_timer != NULL) {
         app_timer_cancel(s_ruler_entry_timer);
@@ -326,7 +320,6 @@ static void start_ruler_entry_animation(void) {
     }
 }
 
-// RULER_LEFT_BOUNCE_REVERSE_V1
 static void start_ruler_exit_animation(void) {
     if (s_ruler_entry_timer != NULL) {
         app_timer_cancel(s_ruler_entry_timer);
@@ -352,8 +345,6 @@ static void start_ruler_exit_animation(void) {
         reset_ruler_entry_animation();
     }
 }
-
-
 
 static void set_minutes(int16_t minutes, bool publish) {
     const int16_t clamped = clamp_minutes(minutes);
@@ -391,7 +382,6 @@ static void cancel_ruler_roll(void) {
 
     s_ruler_roll_offset = 0;
 }
-
 
 static void ruler_roll_tick(void *context) {
     UNUSED(context);
@@ -441,7 +431,6 @@ static void ruler_roll_tick(void *context) {
         }
     }
 }
-
 
 static void start_ruler_roll(int direction) {
     if (direction > 0) {
@@ -682,7 +671,6 @@ static void start_arrow_bounce(void) {
     );
 }
 
-// RULER_FLING_INERTIA_V1
 static void cancel_ruler_fling(void) {
     if (s_ruler_fling_timer != NULL) {
         app_timer_cancel(s_ruler_fling_timer);
@@ -693,7 +681,6 @@ static void cancel_ruler_fling(void) {
     s_ruler_fling_position_q8 = 0;
     s_recent_drag_velocity_q8 = 0;
 }
-
 
 static void finish_selection_release(void) {
     s_drag_accumulator = 0;
@@ -710,7 +697,6 @@ static void finish_selection_release(void) {
         layer_mark_dirty(s_layer);
     }
 }
-
 
 static bool apply_ruler_drag_delta(
     int16_t delta_y,
@@ -777,12 +763,10 @@ static bool apply_ruler_drag_delta(
     return false;
 }
 
-
 static void finish_ruler_fling(void) {
     cancel_ruler_fling();
     finish_selection_release();
 }
-
 
 static void ruler_fling_tick(void *context) {
     UNUSED(context);
@@ -847,7 +831,6 @@ static void ruler_fling_tick(void *context) {
     }
 }
 
-
 static bool start_ruler_fling(void) {
     const int32_t requested_velocity =
         s_recent_drag_velocity_q8;
@@ -886,7 +869,6 @@ static bool start_ruler_fling(void) {
 
     return true;
 }
-
 
 static void cancel_arrow_fill(void) {
     if (s_arrow_fill_timer != NULL) {
@@ -1028,6 +1010,18 @@ static uint32_t running_remaining_ms(void) {
     return elapsed_ms >= s_running_duration_ms
         ? 0
         : s_running_duration_ms - elapsed_ms;
+}
+
+static uint32_t running_frame_interval_ms(void) {
+    const bool hundredths_visible =
+        !s_running_alarm_display
+        && config_get()->showCentiseconds
+        && running_remaining_ms()
+            < (100U * 60U * 1000U);
+
+    return hundredths_visible
+        ? RUNNING_FRAME_FAST_MS
+        : RUNNING_FRAME_SLOW_MS;
 }
 
 static void cancel_running_timers(void) {
@@ -1392,7 +1386,7 @@ static void running_frame_tick(void *context) {
 
     layer_mark_dirty(s_layer);
     s_running_frame_timer = app_timer_register(
-        RUNNING_FRAME_MS,
+        running_frame_interval_ms(),
         running_frame_tick,
         NULL
     );
@@ -1475,7 +1469,7 @@ static void running_transition_tick(void *context) {
         // Start the live countdown after the top-slide transition.
         if (!s_running_paused) {
             s_running_frame_timer = app_timer_register(
-                RUNNING_FRAME_MS,
+                running_frame_interval_ms(),
                 running_frame_tick,
                 NULL
             );
@@ -1589,7 +1583,7 @@ void touch_restore_running(
 
         if (!paused) {
             s_running_frame_timer = app_timer_register(
-                RUNNING_FRAME_MS,
+                running_frame_interval_ms(),
                 running_frame_tick,
                 NULL
             );
@@ -1639,14 +1633,13 @@ void touch_show_alarm(uint32_t duration_seconds) {
     cancel_running_timers();
 
     s_running_frame_timer = app_timer_register(
-        RUNNING_FRAME_MS,
+        running_frame_interval_ms(),
         running_frame_tick,
         NULL
     );
 
     layer_mark_dirty(s_layer);
 }
-
 
 bool touch_running_screen_active(void) {
     return s_running_screen;
@@ -1677,7 +1670,7 @@ void touch_set_paused(bool paused) {
                 );
             } else {
                 s_running_frame_timer = app_timer_register(
-                    RUNNING_FRAME_MS,
+                    running_frame_interval_ms(),
                     running_frame_tick,
                     NULL
                 );
@@ -2219,7 +2212,6 @@ static bool set_alarm_digit_color(GColor color) {
     return changed_opaque_color;
 }
 
-
 static bool draw_ppf_text_centered(
     GContext *ctx,
     const char *text,
@@ -2315,7 +2307,6 @@ static bool draw_ppf_text_centered(
     return true;
 }
 
-
 static void create_ppf_digits(void) {
     s_ppf_digit_sheet = gbitmap_create_with_resource(
         RESOURCE_ID_PPF_DIGITS
@@ -2379,7 +2370,6 @@ static void create_ppf_digits(void) {
     }
 }
 
-
 static void destroy_ppf_digits(void) {
     for (uint8_t digit = 0;
          digit < PPF_DIGIT_COUNT;
@@ -2415,7 +2405,6 @@ static void destroy_ppf_digits(void) {
         s_ppf_digit_sheet_alarm = NULL;
     }
 }
-
 
 static void draw_running_countdown(Layer *layer, GContext *ctx) {
     const GRect bounds = layer_get_bounds(layer);
@@ -2545,8 +2534,6 @@ static void draw_running_countdown(Layer *layer, GContext *ctx) {
         draw_running_action_bar(ctx, bounds);
     }
 }
-
-
 
 // Sideways Swiss shield. The point faces right.
 static const char *EMBLEM_ROWS[EMBLEM_HEIGHT] = {
@@ -2699,7 +2686,6 @@ static void draw_tiny_vertical_text(
         return;
     }
 
-    // LEFT_BRANDING_TEXT_ROTATED_180_V1
     // A complete 180-degree rotation changes both the glyph orientation
     // and the order in which characters occupy the vertical word.
     const int16_t character_count =
@@ -2783,9 +2769,8 @@ static void draw_swiss_chronograph_branding(
     GRect bounds,
     int16_t fine_offset
 ) {
-    // CONFIGURABLE_RULER_SIDE_V1
-    // The text remains readable on both edges. Only the asymmetric shield
-    // is mirrored so its point always faces the physical display edge.
+    // On the left edge, rotate the complete vertical branding by 180
+    // degrees and mirror the asymmetric shield toward the display edge.
     const bool ruler_on_left =
         config_get()->rulerSide
         == RulerSide_Left;
@@ -2878,8 +2863,6 @@ static void draw_swiss_chronograph_branding(
         ruler_on_left
     );
 }
-
-
 
 static void draw_read_line_number_bubble(
     GContext *ctx,
@@ -3104,7 +3087,6 @@ static void draw_read_line_number_bubble(
         NULL
     );
 }
-
 
 static void draw_ruler(Layer *layer, GContext *ctx) {
     if (s_running_screen) {
@@ -3376,7 +3358,6 @@ static void draw_ruler(Layer *layer, GContext *ctx) {
     const int16_t arrow_center_x =
         bounds.size.w / 2;
 
-    // HALVED_CHEVRONS_PRESERVE_ANGLE_V1
     const int16_t original_arrow_half_width =
         MAX(bounds.size.w / 6, 1);
 
@@ -3506,7 +3487,6 @@ static void handle_touch_event(
     }
 }
 
-
 void touch_enable(bool enable) {
     if (!touch_service_is_enabled() || s_layer == NULL) {
         return;
@@ -3523,8 +3503,8 @@ void touch_enable(bool enable) {
         }
 
     } else {
+        cancel_ruler_fling();
         cancel_ruler_roll();
-
 
         if (s_touch_is_enabled) {
             touch_service_unsubscribe();
@@ -3541,7 +3521,11 @@ void touch_create(
     TouchServiceHandler handler,
     TouchAutoStartCallback auto_start_callback
 ) {
-    if (!touch_service_is_enabled() || s_layer != NULL) {
+    if (
+        !touch_service_is_enabled()
+        || parent == NULL
+        || s_layer != NULL
+    ) {
         return;
     }
 
@@ -3597,7 +3581,19 @@ void touch_create(
 
     create_ppf_digits();
 
-    s_layer = layer_create(layer_get_bounds(parent));
+    s_layer = layer_create(
+        layer_get_bounds(parent)
+    );
+
+    if (s_layer == NULL) {
+        LOG("Could not create touch layer");
+        destroy_ppf_digits();
+        s_callback = NULL;
+        s_parent_handler = NULL;
+        s_auto_start_callback = NULL;
+        return;
+    }
+
     layer_set_update_proc(s_layer, draw_ruler);
     layer_add_child(parent, s_layer);
     layer_set_hidden(s_layer, false);
@@ -3625,7 +3621,6 @@ void touch_destroy(void) {
     hide_pause_controls();
     hide_run_controls();
     touch_enable(false);
-
 
     stop_arrow_animation();
 

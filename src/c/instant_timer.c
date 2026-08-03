@@ -82,7 +82,6 @@ static AppTimer *s_theme_shake_debounce_timer;
 
 static bool s_select_run_screen_press;
 
-
 /******************************************************************************
  * Timer state and persistence
  ******************************************************************************/
@@ -166,7 +165,6 @@ static void timer_state_delete(void) {
     (void)persist_delete(PERSIST_KEY_TIMER_VERSION);
 }
 
-
 /******************************************************************************
  * Wakeup handling
  ******************************************************************************/
@@ -225,6 +223,29 @@ static void timer_schedule_wakeup(void) {
     }
 }
 
+static void timer_persist_active_state(void) {
+    timer_update_elapsed();
+
+    const bool unfinished =
+        s_should_persist
+        && s_state.duration_seconds > 0
+        && s_state.elapsed_seconds
+            < s_state.duration_seconds;
+
+    if (!unfinished) {
+        timer_cancel_wakeup();
+        timer_state_delete();
+        return;
+    }
+
+    if (s_state.is_running) {
+        timer_schedule_wakeup();
+    } else {
+        timer_cancel_wakeup();
+    }
+
+    timer_state_save();
+}
 
 /******************************************************************************
  * Streamed alarm audio
@@ -422,7 +443,6 @@ static bool alarm_audio_start(void) {
     return s_alarm_audio_active;
 }
 
-
 /******************************************************************************
  * Alarm lifecycle
  ******************************************************************************/
@@ -533,7 +553,6 @@ static void alarm_start(void) {
     alarm_pulse_timer_handler(NULL);
 }
 
-
 /******************************************************************************
  * User-visible timer actions
  ******************************************************************************/
@@ -606,6 +625,8 @@ static void timer_start(void) {
     touch_start_running(
         (uint32_t)s_state.duration_seconds
     );
+
+    timer_persist_active_state();
 }
 
 static void timer_toggle_pause(void) {
@@ -632,6 +653,7 @@ static void timer_toggle_pause(void) {
 
     button_vibe();
     touch_set_paused(!s_state.is_running);
+    timer_persist_active_state();
 }
 
 static void timer_add_minute(void) {
@@ -657,6 +679,8 @@ static void timer_add_minute(void) {
     touch_add_running_seconds(
         SECONDS_PER_MINUTE
     );
+
+    timer_persist_active_state();
 }
 
 static void timer_delete(void) {
@@ -681,7 +705,6 @@ static void timer_exit(void) {
 
     window_stack_pop(true);
 }
-
 
 /******************************************************************************
  * Timer and theme services
@@ -744,7 +767,6 @@ static void accel_tap_handler(
             NULL
         );
 }
-
 
 /******************************************************************************
  * Touch and hardware buttons
@@ -984,7 +1006,6 @@ static void click_config_provider(void *context) {
     );
 }
 
-
 /******************************************************************************
  * Window lifecycle
  ******************************************************************************/
@@ -1058,27 +1079,7 @@ static void restore_saved_timer(void) {
 }
 
 static void persist_timer_before_exit(void) {
-    timer_update_elapsed();
-
-    const bool unfinished =
-        s_should_persist
-        && s_state.duration_seconds > 0
-        && s_state.elapsed_seconds
-            < s_state.duration_seconds;
-
-    if (!unfinished) {
-        timer_cancel_wakeup();
-        timer_state_delete();
-        return;
-    }
-
-    if (s_state.is_running) {
-        timer_schedule_wakeup();
-    } else {
-        timer_cancel_wakeup();
-    }
-
-    timer_state_save();
+    timer_persist_active_state();
 }
 
 static void main_window_load(Window *window) {
@@ -1087,18 +1088,27 @@ static void main_window_load(Window *window) {
     Layer *root =
         window_get_root_layer(window);
 
+    if (root == NULL) {
+        LOG("Could not get the window root layer");
+        return;
+    }
+
     s_background_layer =
         layer_create(layer_get_bounds(root));
 
-    layer_set_update_proc(
-        s_background_layer,
-        draw_background
-    );
+    if (s_background_layer != NULL) {
+        layer_set_update_proc(
+            s_background_layer,
+            draw_background
+        );
 
-    layer_add_child(
-        root,
-        s_background_layer
-    );
+        layer_add_child(
+            root,
+            s_background_layer
+        );
+    } else {
+        LOG("Could not create background layer");
+    }
 
     touch_create(
         root,
@@ -1150,10 +1160,15 @@ static void main_window_unload(Window *window) {
     config_deinit();
 }
 
-static void init(void) {
+static bool init(void) {
     theme_init();
 
     s_main_window = window_create();
+
+    if (s_main_window == NULL) {
+        LOG("Could not create main window");
+        return false;
+    }
 
     window_set_click_config_provider(
         s_main_window,
@@ -1172,14 +1187,23 @@ static void init(void) {
         s_main_window,
         true
     );
+
+    return true;
 }
 
 static void deinit(void) {
-    window_destroy(s_main_window);
+    if (s_main_window != NULL) {
+        window_destroy(s_main_window);
+        s_main_window = NULL;
+    }
 }
 
 int main(void) {
-    init();
+    if (!init()) {
+        return 1;
+    }
+
     app_event_loop();
     deinit();
+    return 0;
 }
