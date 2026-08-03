@@ -24,7 +24,7 @@
 #define TICK_SPACING 12
 #define VISIBLE_TICKS 16
 
-#define READOUT_Y 36
+#define READOUT_Y 24
 
 #define ARROW_COUNT 4
 #define ARROW_STEP_Y 16
@@ -65,8 +65,10 @@
 #define BRANDING_GAP_Y 3
 #define TINY_GLYPH_WIDTH 3
 #define TINY_GLYPH_HEIGHT 5
-#define TINY_GLYPH_ROTATED_WIDTH TINY_GLYPH_HEIGHT
-#define TINY_GLYPH_ADVANCE_Y 4
+#define TINY_GLYPH_SCALE 2
+#define TINY_GLYPH_ROTATED_WIDTH (TINY_GLYPH_HEIGHT * TINY_GLYPH_SCALE)
+#define TINY_GLYPH_ROTATED_HEIGHT (TINY_GLYPH_WIDTH * TINY_GLYPH_SCALE)
+#define TINY_GLYPH_ADVANCE_Y (TINY_GLYPH_ROTATED_HEIGHT + 1)
 #define EMBLEM_WIDTH 14
 #define EMBLEM_HEIGHT 11
 
@@ -2149,7 +2151,10 @@ static const char *tiny_glyph_rows(char character) {
     case 'c': return "111""100""100""100""111";
     case 'g': return "111""100""101""101""111";
     case 'h': return "101""101""111""101""101";
+    case 'd': return "110""101""101""101""110";
+    case 'e': return "111""100""110""100""111";
     case 'i': return "111""010""010""010""111";
+    case 'm': return "101""111""111""101""101";
     case 'n': return "110""101""101""101""101";
     case 'o': return "111""101""101""101""111";
     case 'p': return "110""101""110""100""100";
@@ -2194,10 +2199,10 @@ static void draw_tiny_rotated_glyph(
             graphics_fill_rect(
                 ctx,
                 GRect(
-                    x + source_y,
-                    y + TINY_GLYPH_WIDTH - 1 - source_x,
-                    1,
-                    1
+                    x + (source_y * TINY_GLYPH_SCALE),
+                    y + ((TINY_GLYPH_WIDTH - 1 - source_x) * TINY_GLYPH_SCALE),
+                    TINY_GLYPH_SCALE,
+                    TINY_GLYPH_SCALE
                 ),
                 0,
                 GCornerNone
@@ -2224,7 +2229,7 @@ static void draw_tiny_vertical_text(
          *cursor != '\0';
          ++cursor) {
         const int16_t glyph_top_y =
-            glyph_bottom_y - (TINY_GLYPH_WIDTH - 1);
+            glyph_bottom_y - (TINY_GLYPH_ROTATED_HEIGHT - 1);
 
         draw_tiny_rotated_glyph(
             ctx,
@@ -2300,9 +2305,9 @@ static void draw_swiss_chronograph_branding(
         + fine_offset;
 
     const int16_t emblem_top_y =
-        (bounds.size.h / 2)
+        ((bounds.size.h / 2)
         - (EMBLEM_HEIGHT / 2)
-        + (int16_t)ruler_offset_y;
+        + (int16_t)ruler_offset_y + 4);
 
     const int16_t emblem_bottom_y =
         emblem_top_y + EMBLEM_HEIGHT - 1;
@@ -2310,7 +2315,7 @@ static void draw_swiss_chronograph_branding(
     // Rotated 3x5 text uses four vertical pixels per character,
     // except that the final character needs no trailing gap.
     const int16_t swiss_height =
-        (5 * TINY_GLYPH_ADVANCE_Y) - 1;
+        (10 * TINY_GLYPH_ADVANCE_Y) - 1;
     const int16_t chronograph_height =
         (11 * TINY_GLYPH_ADVANCE_Y) - 1;
 
@@ -2333,10 +2338,10 @@ static void draw_swiss_chronograph_branding(
         theme_foreground_color();
 
     // Readable from the right-hand side, bottom to top:
-    // swiss -> shield -> Chronograph.
+    // swiss made -> shield -> Chronograph.
     draw_tiny_vertical_text(
         ctx,
-        "swiss",
+        "swiss made",
         brand_center_x,
         swiss_bottom_y,
         text_color
@@ -2416,6 +2421,11 @@ static void draw_read_line_number_bubble(
     }
 
     char label[8];
+        // READ_LINE_ZERO_BUBBLE_HIDE_V1
+    if (nearest_minute <= 0) {
+        return;
+    }
+
     snprintf(
         label,
         sizeof(label),
@@ -2620,7 +2630,12 @@ static void draw_ruler(Layer *layer, GContext *ctx) {
         );
 
         if (major) {
-            snprintf(label, sizeof(label), "%d", minute);
+            // RULER_ZERO_LABEL_HIDE_V1
+            if (minute <= 0) {
+                label[0] = '\0';
+            } else {
+                snprintf(label, sizeof(label), "%d", minute);
+            }
 
             graphics_draw_text(
                 ctx,
@@ -2669,7 +2684,12 @@ static void draw_ruler(Layer *layer, GContext *ctx) {
     // Keep the zero position visually quiet. The large value
     // appears only after at least one minute is selected.
     if (s_selected_minutes > 0) {
-        snprintf(label, sizeof(label), "%d", s_selected_minutes);
+        // RULER_ZERO_LABEL_HIDE_V1
+        if (s_selected_minutes <= 0) {
+            label[0] = '\0';
+        } else {
+            snprintf(label, sizeof(label), "%d", s_selected_minutes);
+        }
 
         // Center on the full display and exactly on the read line.
         const GRect selected_value_frame = GRect(

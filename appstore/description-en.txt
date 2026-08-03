@@ -1,4 +1,4 @@
-Tap Timer is a tactile countdown timer for Pebble.
+Swiss Chronograph is a tactile countdown timer for Pebble.
 
 On touch-capable models, choose between 0 and 180 minutes by dragging a
 vertical ruler. Every minute behaves like a physical detent, so the scale can
@@ -17,5 +17,5 @@ Light, Dark and wrist-shake appearance modes are included. The read-line
 colour, alarm vibration and optional speaker beep can be configured from the
 phone.
 
-Tap Timer is based on Instant Timer by Andrew Howe and was extensively
+Swiss Chronograph is based on Instant Timer by Andrew Howe and was extensively
 redesigned by Maru Kitano. Licensed under GPLv3.

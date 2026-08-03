@@ -1,5 +1,5 @@
 {
-  "name": "Tap Timer",
+  "name": "swiss-chronograph",
   "author": "marukitano",
   "version": "1.0.0",
   "keywords": [
@@ -7,14 +7,15 @@
     "timer",
     "countdown",
     "pebble-time-2",
-    "emery"
+    "emery",
+    "swiss-chronograph"
   ],
   "private": true,
   "dependencies": {
     "@rebble/clay": "^1.0.8"
   },
   "pebble": {
-    "displayName": "Tap Timer",
+    "displayName": "Swiss Chronograph",
     "uuid": "92860832-e162-49d5-bd89-81c92c0fe40c",
     "sdkVersion": "3",
     "enableMultiJS": true,
@@ -49,16 +50,19 @@
           "file": "font/ppf-digits-white.png"
         }
       ]
-    }
+    },
+    "capabilities": [
+      "configurable"
+    ]
   },
   "description": "EN: Tired of timer apps where your finger covers exactly what you are trying to set, or where starting a simple countdown takes countless taps? Swiss Chronograph is different: one swipe along the ruler and you are done. It runs in the background, wakes up reliably, and plays a proper 8-bit alarm sound. Choose a light or dark theme, or switch between them with a shake. The interface is deliberately minimal and uses as few clicks as possible, while remaining fully usable with the hardware buttons when you are wearing gloves. Built exclusively for Pebble Time 2, open source, and genuinely Swiss. Have fun with it! — Maru\n\nDE: Bist du es auch leid, dass du bei Timer-Apps mit dem Finger genau das verdeckst, was du einstellen möchtest, oder unzählige Klicks brauchst, um einen einfachen Countdown zu starten? Swiss Chronograph ist anders: Ein Swipe über das Lineal, und das war es. Er läuft im Hintergrund, weckt zuverlässig und spielt einen richtigen 8-Bit-Alarmton. Du kannst ein helles oder dunkles Theme verwenden oder mit einer Schüttelbewegung zwischen beiden wechseln. Die Bedienung ist bewusst minimalistisch und benötigt so wenige Klicks wie möglich, bleibt aber auch mit Handschuhen vollständig über die Hardwaretasten nutzbar. Ausschliesslich für die Pebble Time 2 entwickelt, Open Source und tatsächlich aus der Schweiz. Viel Spass damit! — Maru",
   "license": "GPL-3.0-only",
-  "homepage": "https://github.com/marukitano/Tap-timer",
+  "homepage": "https://github.com/marukitano/Swiss-Chronograph",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/marukitano/Tap-timer.git"
+    "url": "git+https://github.com/marukitano/Swiss-Chronograph.git"
   },
   "bugs": {
-    "url": "https://github.com/marukitano/Tap-timer/issues"
+    "url": "https://github.com/marukitano/Swiss-Chronograph/issues"
   }
 }

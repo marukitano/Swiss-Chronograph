@@ -1,8 +1,12 @@
-// Tap Timer - Emery-only countdown controller.
+// Copyright (c) 2026 Andrew Howe. All rights reserved. See LICENSE (GPLv3.0).
+// Copyright (c) 2026 Maru Kitano. Modifications for Swiss Chronograph.
+// SPDX-License-Identifier: GPL-3.0-only
+
+// Swiss Chronograph - Emery-only countdown controller.
 //
 // The original Instant Timer project contained a stopwatch mode, several
 // duration-editing modes, a hidden legacy text UI and multi-platform action
-// bars. Tap Timer uses none of those. This file contains only the controller
+// bars. Swiss Chronograph uses none of those. This file contains only the controller
 // required by the Pebble Time 2 touch interface.
 
 #include <pebble.h>

@@ -1,4 +1,4 @@
-// Consistent Light/Dark/Shake theme handling for Tap Timer.
+// Consistent Light/Dark/Shake theme handling for Swiss Chronograph.
 
 #pragma once
 

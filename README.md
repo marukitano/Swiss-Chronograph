@@ -1,4 +1,4 @@
-# Tap Timer — Swiss Chronograph
+# Swiss Chronograph
 
 ## English
 
@@ -108,11 +108,15 @@ pebble install --phone <watch-ip>
 
 ### Origin and licence
 
-Tap Timer / Swiss Chronograph is based on **Instant Timer** by Andrew Howe and
+Swiss Chronograph is based on **Instant Timer** by Andrew Howe and
 was extensively redesigned by Maru Kitano.
 
 The project is licensed under the
 [GNU General Public License version 3](LICENSE).
+
+The original-project copyright notice and the modifications are documented in
+[NOTICE.md](NOTICE.md). The bundled alarm sound and its separate licence are
+documented in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 ---
 
@@ -225,8 +229,13 @@ pebble install --phone <watch-ip>
 
 ### Ursprung und Lizenz
 
-Tap Timer / Swiss Chronograph basiert auf **Instant Timer** von Andrew Howe und
+Swiss Chronograph basiert auf **Instant Timer** von Andrew Howe und
 wurde von Maru Kitano umfassend neu gestaltet.
 
 Das Projekt steht unter der
 [GNU General Public License Version 3](LICENSE).
+
+Die Urheberhinweise zum ursprünglichen Projekt und zu den Änderungen sind in
+[NOTICE.md](NOTICE.md) dokumentiert. Der mitgelieferte Alarmton und seine
+separate Lizenz stehen in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
