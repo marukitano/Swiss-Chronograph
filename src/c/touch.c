@@ -55,6 +55,14 @@
 #define RUN_CONTROLS_HIDDEN_OFFSET 30
 #define RULER_ENTRY_FRAME_MS 42
 #define RULER_ENTRY_HIDDEN_OFFSET 30
+#define RULER_FLING_FRAME_MS 28
+#define RULER_FLING_Q8 256
+#define RULER_FLING_MIN_START_Q8 (4 * RULER_FLING_Q8)
+#define RULER_FLING_MAX_SPEED_Q8 (36 * RULER_FLING_Q8)
+#define RULER_FLING_STOP_SPEED_Q8 (RULER_FLING_Q8 / 2)
+#define RULER_FLING_FRICTION_NUM 92
+#define RULER_FLING_FRICTION_DEN 100
+// RULER_FLING_STRONGER_V1
 #define PPF_DIGIT_COUNT 10
 #define PPF_DIGIT_WIDTH 24
 #define PPF_DIGIT_HEIGHT 21
@@ -94,6 +102,10 @@ static int16_t s_selected_minutes;
 
 static AppTimer *s_ruler_roll_timer;
 static int16_t s_ruler_roll_offset;
+static AppTimer *s_ruler_fling_timer;
+static int32_t s_ruler_fling_velocity_q8;
+static int32_t s_ruler_fling_position_q8;
+static int32_t s_recent_drag_velocity_q8;
 static AppTimer *s_ruler_entry_timer;
 static uint8_t s_ruler_entry_step;
 static int16_t s_ruler_entry_offset =
@@ -114,6 +126,7 @@ static bool s_arrow_animation_started;
 static void start_arrow_animation(void);
 static void stop_arrow_animation(void);
 static void cancel_arrow_fill(void);
+static void cancel_ruler_fling(void);
 static uint8_t s_arrow_anim_phase;
 static AppTimer *s_arrow_bounce_timer;
 static int16_t s_arrow_drag_offset;
@@ -466,6 +479,8 @@ void touch_adjust_minutes(int delta) {
         return;
     }
 
+    cancel_ruler_fling();
+
     // Hardware Up/Down changes only the minute detent. It must not start
     // the decorative chevron wave that belongs to the touch-release
     // auto-start sequence.
@@ -552,6 +567,7 @@ static void draw_chevron_down(
     int16_t cx,
     int16_t cy,
     int16_t half_width,
+    int16_t half_height,
     GColor color
 ) {
     graphics_context_set_stroke_color(ctx, color);
@@ -559,14 +575,14 @@ static void draw_chevron_down(
 
     graphics_draw_line(
         ctx,
-        GPoint(cx - half_width, cy - ARROW_HALF_HEIGHT),
-        GPoint(cx, cy + ARROW_HALF_HEIGHT)
+        GPoint(cx - half_width, cy - half_height),
+        GPoint(cx, cy + half_height)
     );
 
     graphics_draw_line(
         ctx,
-        GPoint(cx, cy + ARROW_HALF_HEIGHT),
-        GPoint(cx + half_width, cy - ARROW_HALF_HEIGHT)
+        GPoint(cx, cy + half_height),
+        GPoint(cx + half_width, cy - half_height)
     );
 }
 
@@ -665,6 +681,212 @@ static void start_arrow_bounce(void) {
         NULL
     );
 }
+
+// RULER_FLING_INERTIA_V1
+static void cancel_ruler_fling(void) {
+    if (s_ruler_fling_timer != NULL) {
+        app_timer_cancel(s_ruler_fling_timer);
+        s_ruler_fling_timer = NULL;
+    }
+
+    s_ruler_fling_velocity_q8 = 0;
+    s_ruler_fling_position_q8 = 0;
+    s_recent_drag_velocity_q8 = 0;
+}
+
+
+static void finish_selection_release(void) {
+    s_drag_accumulator = 0;
+
+    if (s_selected_minutes > 0) {
+        start_arrow_animation();
+    } else {
+        stop_arrow_animation();
+    }
+
+    start_arrow_bounce();
+
+    if (s_layer != NULL) {
+        layer_mark_dirty(s_layer);
+    }
+}
+
+
+static bool apply_ruler_drag_delta(
+    int16_t delta_y,
+    bool move_arrow_stack
+) {
+    if (delta_y == 0) {
+        return false;
+    }
+
+    s_drag_accumulator += delta_y;
+
+    if (move_arrow_stack) {
+        s_arrow_drag_offset += delta_y;
+    }
+
+    if (delta_y > 0) {
+        while (
+            s_drag_accumulator
+                >= MINUTE_DETENT_THRESHOLD_PX
+        ) {
+            if (s_selected_minutes >= MAX_MINUTES) {
+                s_drag_accumulator =
+                    MINUTE_DETENT_THRESHOLD_PX - 1;
+                return true;
+            }
+
+            s_drag_accumulator -=
+                PIXELS_PER_MINUTE;
+
+            set_minutes(
+                s_selected_minutes + 1,
+                true
+            );
+
+            start_ruler_roll(1);
+        }
+    } else {
+        while (
+            s_drag_accumulator
+                <= -MINUTE_DETENT_THRESHOLD_PX
+        ) {
+            if (s_selected_minutes <= MIN_MINUTES) {
+                s_drag_accumulator =
+                    -MINUTE_DETENT_THRESHOLD_PX + 1;
+                return true;
+            }
+
+            s_drag_accumulator +=
+                PIXELS_PER_MINUTE;
+
+            set_minutes(
+                s_selected_minutes - 1,
+                true
+            );
+
+            start_ruler_roll(-1);
+
+            if (s_selected_minutes <= MIN_MINUTES) {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+
+static void finish_ruler_fling(void) {
+    cancel_ruler_fling();
+    finish_selection_release();
+}
+
+
+static void ruler_fling_tick(void *context) {
+    UNUSED(context);
+    s_ruler_fling_timer = NULL;
+
+    if (
+        s_layer == NULL
+        || s_touching
+        || s_running_screen
+    ) {
+        cancel_ruler_fling();
+        return;
+    }
+
+    s_ruler_fling_position_q8 +=
+        s_ruler_fling_velocity_q8;
+
+    const int16_t movement =
+        (int16_t)(
+            s_ruler_fling_position_q8
+            / RULER_FLING_Q8
+        );
+
+    s_ruler_fling_position_q8 -=
+        ((int32_t)movement * RULER_FLING_Q8);
+
+    const bool reached_boundary =
+        movement != 0
+        && apply_ruler_drag_delta(
+            movement,
+            false
+        );
+
+    s_ruler_fling_velocity_q8 =
+        (
+            s_ruler_fling_velocity_q8
+            * RULER_FLING_FRICTION_NUM
+        )
+        / RULER_FLING_FRICTION_DEN;
+
+    if (
+        reached_boundary
+        || ABS(s_ruler_fling_velocity_q8)
+            < RULER_FLING_STOP_SPEED_Q8
+    ) {
+        finish_ruler_fling();
+        return;
+    }
+
+    if (s_layer != NULL) {
+        layer_mark_dirty(s_layer);
+    }
+
+    s_ruler_fling_timer = app_timer_register(
+        RULER_FLING_FRAME_MS,
+        ruler_fling_tick,
+        NULL
+    );
+
+    if (s_ruler_fling_timer == NULL) {
+        finish_ruler_fling();
+    }
+}
+
+
+static bool start_ruler_fling(void) {
+    const int32_t requested_velocity =
+        s_recent_drag_velocity_q8;
+
+    if (
+        ABS(requested_velocity)
+            < RULER_FLING_MIN_START_Q8
+    ) {
+        cancel_ruler_fling();
+        return false;
+    }
+
+    cancel_ruler_fling();
+
+    s_ruler_fling_velocity_q8 =
+        MIN(
+            MAX(
+                requested_velocity,
+                -RULER_FLING_MAX_SPEED_Q8
+            ),
+            RULER_FLING_MAX_SPEED_Q8
+        );
+
+    s_ruler_fling_position_q8 = 0;
+
+    s_ruler_fling_timer = app_timer_register(
+        RULER_FLING_FRAME_MS,
+        ruler_fling_tick,
+        NULL
+    );
+
+    if (s_ruler_fling_timer == NULL) {
+        cancel_ruler_fling();
+        return false;
+    }
+
+    return true;
+}
+
 
 static void cancel_arrow_fill(void) {
     if (s_arrow_fill_timer != NULL) {
@@ -1617,6 +1839,7 @@ void touch_minimize_action_release(
 }
 
 void touch_reset_idle(void) {
+    cancel_ruler_fling();
     cancel_ruler_roll();
     cancel_running_timers();
     cancel_run_action_animation();
@@ -2369,15 +2592,20 @@ static void draw_tiny_rotated_glyph(
     char character,
     int16_t x,
     int16_t y,
-    GColor color
+    GColor color,
+    bool rotate_180
 ) {
-    const char *pixels = tiny_glyph_rows(character);
+    const char *pixels =
+        tiny_glyph_rows(character);
 
     if (pixels == NULL) {
         return;
     }
 
-    graphics_context_set_fill_color(ctx, color);
+    graphics_context_set_fill_color(
+        ctx,
+        color
+    );
 
     for (int16_t source_y = 0;
          source_y < TINY_GLYPH_HEIGHT;
@@ -2386,20 +2614,39 @@ static void draw_tiny_rotated_glyph(
              source_x < TINY_GLYPH_WIDTH;
              ++source_x) {
             const int index =
-                source_y * TINY_GLYPH_WIDTH + source_x;
+                source_y
+                * TINY_GLYPH_WIDTH
+                + source_x;
 
             if (pixels[index] != '1') {
                 continue;
             }
 
-            // 90 degrees counter-clockwise.
-            // Together with the reversed vertical layout this rotates
-            // the complete former branding by exactly 180 degrees.
+            const int16_t destination_x =
+                rotate_180
+                    ? (
+                        TINY_GLYPH_HEIGHT
+                        - 1
+                        - source_y
+                    ) * TINY_GLYPH_SCALE
+                    : source_y
+                        * TINY_GLYPH_SCALE;
+
+            const int16_t destination_y =
+                rotate_180
+                    ? source_x
+                        * TINY_GLYPH_SCALE
+                    : (
+                        TINY_GLYPH_WIDTH
+                        - 1
+                        - source_x
+                    ) * TINY_GLYPH_SCALE;
+
             graphics_fill_rect(
                 ctx,
                 GRect(
-                    x + (source_y * TINY_GLYPH_SCALE),
-                    y + ((TINY_GLYPH_WIDTH - 1 - source_x) * TINY_GLYPH_SCALE),
+                    x + destination_x,
+                    y + destination_y,
                     TINY_GLYPH_SCALE,
                     TINY_GLYPH_SCALE
                 ),
@@ -2415,38 +2662,80 @@ static void draw_tiny_vertical_text(
     const char *text,
     int16_t center_x,
     int16_t bottom_y,
-    GColor color
+    GColor color,
+    bool rotate_180
 ) {
     const int16_t x =
-        center_x - (TINY_GLYPH_ROTATED_WIDTH / 2);
+        center_x
+        - (TINY_GLYPH_ROTATED_WIDTH / 2);
 
-    int16_t glyph_bottom_y = bottom_y;
+    if (!rotate_180) {
+        int16_t glyph_bottom_y =
+            bottom_y;
 
-    // Characters are placed upward. Reading from the bottom toward
-    // the top therefore produces the normal character order.
+        for (const char *cursor = text;
+             *cursor != '\0';
+             ++cursor) {
+            const int16_t glyph_top_y =
+                glyph_bottom_y
+                - (
+                    TINY_GLYPH_ROTATED_HEIGHT
+                    - 1
+                );
+
+            draw_tiny_rotated_glyph(
+                ctx,
+                *cursor,
+                x,
+                glyph_top_y,
+                color,
+                false
+            );
+
+            glyph_bottom_y -=
+                TINY_GLYPH_ADVANCE_Y;
+        }
+
+        return;
+    }
+
+    // LEFT_BRANDING_TEXT_ROTATED_180_V1
+    // A complete 180-degree rotation changes both the glyph orientation
+    // and the order in which characters occupy the vertical word.
+    const int16_t character_count =
+        (int16_t)strlen(text);
+
+    const int16_t text_height =
+        (character_count * TINY_GLYPH_ADVANCE_Y)
+        - 1;
+
+    int16_t glyph_top_y =
+        bottom_y
+        - text_height
+        + 1;
+
     for (const char *cursor = text;
          *cursor != '\0';
          ++cursor) {
-        const int16_t glyph_top_y =
-            glyph_bottom_y - (TINY_GLYPH_ROTATED_HEIGHT - 1);
-
         draw_tiny_rotated_glyph(
             ctx,
             *cursor,
             x,
             glyph_top_y,
-            color
+            color,
+            true
         );
 
-        glyph_bottom_y -= TINY_GLYPH_ADVANCE_Y;
+        glyph_top_y +=
+            TINY_GLYPH_ADVANCE_Y;
     }
-
 }
 
 static void draw_sideways_swiss_emblem(
     GContext *ctx,
     int16_t x,
-    int16_t y
+    int16_t y,
+    bool mirror_horizontal
 ) {
 #if PBL_COLOR
     const GColor red = GColorRed;
@@ -2462,7 +2751,13 @@ static void draw_sideways_swiss_emblem(
         for (int16_t column = 0;
              column < EMBLEM_WIDTH;
              ++column) {
-            const char pixel = EMBLEM_ROWS[row][column];
+            const int16_t source_column =
+                mirror_horizontal
+                    ? EMBLEM_WIDTH - 1 - column
+                    : column;
+
+            const char pixel =
+                EMBLEM_ROWS[row][source_column];
 
             if (pixel == '.') {
                 continue;
@@ -2472,6 +2767,7 @@ static void draw_sideways_swiss_emblem(
                 ctx,
                 pixel == 'R' ? red : white
             );
+
             graphics_fill_rect(
                 ctx,
                 GRect(x + column, y + row, 1, 1),
@@ -2487,15 +2783,23 @@ static void draw_swiss_chronograph_branding(
     GRect bounds,
     int16_t fine_offset
 ) {
-    // SWISS_IDLE_LAYOUT_SCROLLING_V2
-    // At zero the complete branding block is exactly centred. Afterwards
-    // it rides on the ruler and follows both minute detents and the smooth
-    // ruler-roll animation.
+    // CONFIGURABLE_RULER_SIDE_V1
+    // The text remains readable on both edges. Only the asymmetric shield
+    // is mirrored so its point always faces the physical display edge.
+    const bool ruler_on_left =
+        config_get()->rulerSide
+        == RulerSide_Left;
+
     const int16_t emblem_left_x =
-        bounds.size.w - EMBLEM_WIDTH - 2;
+        ruler_on_left
+            ? 2
+            : bounds.size.w - EMBLEM_WIDTH - 2;
 
     const int16_t brand_center_x =
-        emblem_left_x + 5;
+        ruler_on_left
+            ? emblem_left_x
+                + (EMBLEM_WIDTH - 1 - 5)
+            : emblem_left_x + 5;
 
     const int16_t swiss_height =
         (10 * TINY_GLYPH_ADVANCE_Y) - 1;
@@ -2554,13 +2858,15 @@ static void draw_swiss_chronograph_branding(
         "swiss made",
         brand_center_x,
         swiss_bottom_y,
-        text_color
+        text_color,
+        ruler_on_left
     );
 
     draw_sideways_swiss_emblem(
         ctx,
         emblem_left_x,
-        emblem_top_y
+        emblem_top_y,
+        ruler_on_left
     );
 
     draw_tiny_vertical_text(
@@ -2568,7 +2874,8 @@ static void draw_swiss_chronograph_branding(
         "Chronograph",
         brand_center_x,
         chronograph_bottom_y,
-        text_color
+        text_color,
+        ruler_on_left
     );
 }
 
@@ -2579,19 +2886,16 @@ static void draw_read_line_number_bubble(
     GRect bounds,
     int16_t ruler_left,
     int16_t center_y,
-    int16_t fine_offset
+    int16_t fine_offset,
+    bool ruler_on_left
 ) {
-    const int16_t horizontal_offset =
-        ruler_left
-        - (bounds.size.w - RULER_WIDTH);
-
     enum {
         BADGE_FULL_HEIGHT = 25,
         BADGE_PADDING_X = 7,
         BADGE_TEXT_FRAME_WIDTH = 36,
         BADGE_TEXT_FRAME_HEIGHT = 18,
         MAJOR_TICK_LENGTH = 22,
-        LABEL_RIGHT_GAP = 3,
+        LABEL_INNER_GAP = 3,
         ANIMATION_SCALE = 100
     };
 
@@ -2600,8 +2904,6 @@ static void draw_read_line_number_bubble(
     int nearest_minute = 0;
     int16_t nearest_y = center_y;
 
-    // A major numbered mark affects the bubble only while it is
-    // within exactly one minute of the fixed read line.
     for (int offset = -VISIBLE_TICKS;
          offset <= VISIBLE_TICKS;
          ++offset) {
@@ -2631,15 +2933,13 @@ static void draw_read_line_number_bubble(
         }
     }
 
-    if (!found || nearest_distance >= TICK_SPACING) {
+    if (!found
+        || nearest_distance >= TICK_SPACING
+        || nearest_minute <= 0) {
         return;
     }
 
     char label[8];
-        // READ_LINE_ZERO_BUBBLE_HIDE_V1
-    if (nearest_minute <= 0) {
-        return;
-    }
 
     snprintf(
         label,
@@ -2672,14 +2972,11 @@ static void draw_read_line_number_bubble(
         target_width = BADGE_FULL_HEIGHT;
     }
 
-    // 0 at one minute distance, 100 at the exact numbered mark.
     const int raw_progress =
         ((TICK_SPACING - nearest_distance)
             * ANIMATION_SCALE)
         / TICK_SPACING;
 
-    // Smoothstep: the opening starts and ends softly but remains
-    // completely tied to the physical ruler movement.
     const int eased_progress =
         (
             raw_progress
@@ -2689,7 +2986,7 @@ static void draw_read_line_number_bubble(
         )
         / (ANIMATION_SCALE * ANIMATION_SCALE);
 
-    int16_t bubble_h =
+    const int16_t bubble_h =
         1
         + (
             (BADGE_FULL_HEIGHT - 1)
@@ -2697,7 +2994,7 @@ static void draw_read_line_number_bubble(
         )
         / ANIMATION_SCALE;
 
-    int16_t bubble_w =
+    const int16_t bubble_w =
         1
         + (
             (target_width - 1)
@@ -2709,23 +3006,43 @@ static void draw_read_line_number_bubble(
         return;
     }
 
-    // Existing ruler labels are right-aligned to this edge.
-    const int16_t label_right =
-        bounds.size.w
+    const int16_t label_frame_width =
+        RULER_WIDTH
         - MAJOR_TICK_LENGTH
-        - LABEL_RIGHT_GAP
-        + horizontal_offset;
+        - LABEL_INNER_GAP;
 
-    // Keep the bubble centred on the label's natural position while
-    // the label itself continues moving vertically with the ruler.
+    const int16_t label_frame_x =
+        ruler_on_left
+            ? ruler_left
+                + MAJOR_TICK_LENGTH
+                + LABEL_INNER_GAP
+            : ruler_left;
+
+    const GTextAlignment label_alignment =
+        ruler_on_left
+            ? GTextAlignmentLeft
+            : GTextAlignmentRight;
+
     const int16_t label_center_x =
-        label_right - (text_size.w / 2);
+        ruler_on_left
+            ? label_frame_x + (text_size.w / 2)
+            : label_frame_x
+                + label_frame_width
+                - (text_size.w / 2);
 
     int16_t bubble_x =
         label_center_x - (bubble_w / 2);
 
+    const int16_t ruler_right =
+        ruler_left + RULER_WIDTH - 1;
+
     if (bubble_x < ruler_left) {
         bubble_x = ruler_left;
+    }
+
+    if (bubble_x + bubble_w - 1 > ruler_right) {
+        bubble_x =
+            ruler_right - bubble_w + 1;
     }
 
     const int16_t bubble_y =
@@ -2742,12 +3059,11 @@ static void draw_read_line_number_bubble(
     const int16_t radius =
         bubble_h / 2;
 
-    // The read line was drawn immediately before this function.
-    // Filling here makes the line appear to flow behind the bubble.
     graphics_context_set_fill_color(
         ctx,
         theme_background_color()
     );
+
     graphics_fill_rect(
         ctx,
         bubble_rect,
@@ -2759,33 +3075,32 @@ static void draw_read_line_number_bubble(
         ctx,
         config_get()->ringColorRemaining
     );
+
     graphics_context_set_stroke_width(ctx, 2);
+
     graphics_draw_round_rect(
         ctx,
         bubble_rect,
         radius
     );
 
-    // Redraw the moving ruler number after the read line and bubble.
-    // Its y-position remains attached to the ruler, not to the bubble.
     graphics_context_set_text_color(
         ctx,
         theme_foreground_color()
     );
+
     graphics_draw_text(
         ctx,
         label,
         font,
         GRect(
-            ruler_left,
+            label_frame_x,
             nearest_y - 9,
-            RULER_WIDTH
-                - MAJOR_TICK_LENGTH
-                - LABEL_RIGHT_GAP,
+            label_frame_width,
             BADGE_TEXT_FRAME_HEIGHT
         ),
         GTextOverflowModeTrailingEllipsis,
-        GTextAlignmentRight,
+        label_alignment,
         NULL
     );
 }
@@ -2797,15 +3112,22 @@ static void draw_ruler(Layer *layer, GContext *ctx) {
         return;
     }
 
-    const GRect bounds = layer_get_bounds(layer);
-    const int16_t ruler_left = bounds.size.w - RULER_WIDTH;
+    const GRect bounds =
+        layer_get_bounds(layer);
+
+    const bool ruler_on_left =
+        config_get()->rulerSide
+        == RulerSide_Left;
+
+    const int16_t ruler_left =
+        ruler_on_left
+            ? 0
+            : bounds.size.w - RULER_WIDTH;
+
     const bool ruler_visible =
         s_selected_minutes > 0
         || s_ruler_force_visible;
 
-    // At zero the first ruler position is one pixel above the display.
-    // Drawing is also suppressed at zero, guaranteeing a completely clean
-    // initial screen even with two-pixel major tick strokes.
     const int16_t center_y =
         ruler_visible
             ? READOUT_Y
@@ -2814,27 +3136,51 @@ static void draw_ruler(Layer *layer, GContext *ctx) {
     const int16_t fine_offset =
         s_ruler_roll_offset;
 
-    // Same damped entrance rhythm as the
-    // run-screen controls, entering from left.
+    // Right-side layout enters from the left. The mirrored left-side layout
+    // enters from the right, using exactly the same bounce values.
     const int16_t ruler_entry_x =
-        -s_ruler_entry_offset;
+        ruler_on_left
+            ? s_ruler_entry_offset
+            : -s_ruler_entry_offset;
 
     const int16_t animated_ruler_left =
         ruler_left + ruler_entry_x;
 
-    // RULER_BOUNCE_EXTENDED_RIGHT_EDGE_V1
-    // Moving left extends every line back to the screen edge;
-    // rightward overshoot continues invisibly beyond the edge.
-    graphics_context_set_fill_color(ctx, theme_background_color());
+    // Clear both possible edge locations. This removes the old layout
+    // immediately when the setting changes while this screen is visible.
+    graphics_context_set_fill_color(
+        ctx,
+        theme_background_color()
+    );
+
     graphics_fill_rect(
         ctx,
-        GRect(ruler_left, 0, RULER_WIDTH, bounds.size.h),
+        GRect(0, 0, RULER_WIDTH, bounds.size.h),
         0,
         GCornerNone
     );
 
-    graphics_context_set_stroke_color(ctx, theme_foreground_color());
-    graphics_context_set_text_color(ctx, theme_foreground_color());
+    graphics_fill_rect(
+        ctx,
+        GRect(
+            bounds.size.w - RULER_WIDTH,
+            0,
+            RULER_WIDTH,
+            bounds.size.h
+        ),
+        0,
+        GCornerNone
+    );
+
+    graphics_context_set_stroke_color(
+        ctx,
+        theme_foreground_color()
+    );
+
+    graphics_context_set_text_color(
+        ctx,
+        theme_foreground_color()
+    );
 
     const GFont small_font =
         fonts_get_system_font(FONT_KEY_GOTHIC_14);
@@ -2842,51 +3188,98 @@ static void draw_ruler(Layer *layer, GContext *ctx) {
     char label[8];
 
     if (ruler_visible) {
-        for (int offset = -VISIBLE_TICKS; offset <= VISIBLE_TICKS; ++offset) {
-            const int minute = s_selected_minutes + offset;
+        for (int offset = -VISIBLE_TICKS;
+             offset <= VISIBLE_TICKS;
+             ++offset) {
+            const int minute =
+                s_selected_minutes + offset;
 
-            if (minute < MIN_MINUTES || minute > MAX_MINUTES) {
+            if (minute < MIN_MINUTES
+                || minute > MAX_MINUTES) {
                 continue;
             }
 
             const int16_t y =
-                center_y - (offset * TICK_SPACING) + fine_offset;
+                center_y
+                - (offset * TICK_SPACING)
+                + fine_offset;
 
-            if (y < -TICK_SPACING || y > bounds.size.h + TICK_SPACING) {
+            if (y < -TICK_SPACING
+                || y > bounds.size.h + TICK_SPACING) {
                 continue;
             }
 
-            const bool major = (minute % 5) == 0;
-            const int16_t tick_length = major ? 22 : 11;
+            const bool major =
+                (minute % 5) == 0;
 
-            graphics_context_set_stroke_width(ctx, major ? 2 : 1);
+            const int16_t tick_length =
+                major ? 22 : 11;
+
+            graphics_context_set_stroke_width(
+                ctx,
+                major ? 2 : 1
+            );
+
+            const int16_t tick_outer_x =
+                ruler_on_left
+                    ? MIN(ruler_entry_x, 0)
+                    : bounds.size.w
+                        - 1
+                        + MAX(ruler_entry_x, 0);
+
+            const int16_t tick_inner_x =
+                ruler_on_left
+                    ? tick_length
+                        - 1
+                        + ruler_entry_x
+                    : bounds.size.w
+                        - tick_length
+                        + ruler_entry_x;
 
             graphics_draw_line(
                 ctx,
-                GPoint(bounds.size.w - tick_length + ruler_entry_x, y),
-                GPoint(bounds.size.w - 1 + MAX(ruler_entry_x, 0), y)
+                GPoint(tick_outer_x, y),
+                GPoint(tick_inner_x, y)
             );
 
             if (major) {
-                // RULER_ZERO_LABEL_HIDE_V1
                 if (minute <= 0) {
                     label[0] = '\0';
                 } else {
-                    snprintf(label, sizeof(label), "%d", minute);
+                    snprintf(
+                        label,
+                        sizeof(label),
+                        "%d",
+                        minute
+                    );
                 }
+
+                const int16_t label_x =
+                    ruler_on_left
+                        ? animated_ruler_left
+                            + tick_length
+                            + 3
+                        : animated_ruler_left;
+
+                const GTextAlignment alignment =
+                    ruler_on_left
+                        ? GTextAlignmentLeft
+                        : GTextAlignmentRight;
 
                 graphics_draw_text(
                     ctx,
                     label,
                     small_font,
                     GRect(
-                    animated_ruler_left,
-                    y - 9,
-                        RULER_WIDTH - tick_length - 3,
+                        label_x,
+                        y - 9,
+                        RULER_WIDTH
+                            - tick_length
+                            - 3,
                         18
                     ),
                     GTextOverflowModeTrailingEllipsis,
-                    GTextAlignmentRight,
+                    alignment,
                     NULL
                 );
             }
@@ -2901,15 +3294,30 @@ static void draw_ruler(Layer *layer, GContext *ctx) {
 
     if (ruler_visible) {
         graphics_context_set_stroke_width(ctx, 3);
+
         graphics_context_set_stroke_color(
             ctx,
             config_get()->ringColorRemaining
         );
 
+        const int16_t read_outer_x =
+            ruler_on_left
+                ? MIN(ruler_entry_x, 0)
+                : bounds.size.w
+                    - 1
+                    + MAX(ruler_entry_x, 0);
+
+        const int16_t read_inner_x =
+            ruler_on_left
+                ? animated_ruler_left
+                    + RULER_WIDTH
+                    - 1
+                : animated_ruler_left;
+
         graphics_draw_line(
             ctx,
-            GPoint(animated_ruler_left, center_y),
-            GPoint(bounds.size.w - 1 + MAX(ruler_entry_x, 0), center_y)
+            GPoint(read_outer_x, center_y),
+            GPoint(read_inner_x, center_y)
         );
 
         draw_read_line_number_bubble(
@@ -2917,27 +3325,26 @@ static void draw_ruler(Layer *layer, GContext *ctx) {
             bounds,
             animated_ruler_left,
             center_y,
-            fine_offset
+            fine_offset,
+            ruler_on_left
         );
 
-
-        // Keep the zero position visually quiet. The large value
-        // appears only after at least one minute is selected.
         if (s_selected_minutes > 0) {
-            // RULER_ZERO_LABEL_HIDE_V1
-            if (s_selected_minutes <= 0) {
-                label[0] = '\0';
-            } else {
-                snprintf(label, sizeof(label), "%d", s_selected_minutes);
-            }
-
-            // Center on the full display and exactly on the read line.
-            const GRect selected_value_frame = GRect(
-                0,
-                center_y - (PPF_DIGIT_HEIGHT / 2),
-                bounds.size.w,
-                PPF_DIGIT_HEIGHT
+            snprintf(
+                label,
+                sizeof(label),
+                "%d",
+                s_selected_minutes
             );
+
+            const GRect selected_value_frame =
+                GRect(
+                    0,
+                    center_y
+                        - (PPF_DIGIT_HEIGHT / 2),
+                    bounds.size.w,
+                    PPF_DIGIT_HEIGHT
+                );
 
             if (!draw_ppf_text_centered(
                 ctx,
@@ -2963,32 +3370,53 @@ static void draw_ruler(Layer *layer, GContext *ctx) {
                     NULL
                 );
             }
-
         }
     }
 
-    const int16_t arrow_center_x = bounds.size.w / 2;
-    const int16_t arrow_half_width = bounds.size.w / 6;
+    const int16_t arrow_center_x =
+        bounds.size.w / 2;
 
-    // Centre the complete arrow stack vertically when the scale is at zero.
+    // HALVED_CHEVRONS_PRESERVE_ANGLE_V1
+    const int16_t original_arrow_half_width =
+        MAX(bounds.size.w / 6, 1);
+
+    const int16_t arrow_half_width =
+        MAX(bounds.size.w / 12, 1);
+
+    // Scale the V height by the same factor as its width. Rounding keeps
+    // the integer-pixel result as close as possible to the original angle.
+    const int16_t arrow_half_height =
+        MAX(
+            (
+                (ARROW_HALF_HEIGHT * arrow_half_width)
+                + (original_arrow_half_width / 2)
+            )
+            / original_arrow_half_width,
+            1
+        );
+
     const int16_t arrow_stack_half_height =
         ((ARROW_COUNT - 1) * ARROW_STEP_Y) / 2;
 
     const int32_t lower_arrow_top =
-        (bounds.size.h / 2) - arrow_stack_half_height +
-        s_arrow_drag_offset;
+        (bounds.size.h / 2)
+        - arrow_stack_half_height
+        + s_arrow_drag_offset;
 
     for (int i = 0; i < ARROW_COUNT; ++i) {
         const int32_t y_down =
-            lower_arrow_top + (i * ARROW_STEP_Y);
+            lower_arrow_top
+            + (i * ARROW_STEP_Y);
 
-        if (y_down >= -ARROW_STEP_Y &&
-            y_down <= bounds.size.h + ARROW_STEP_Y) {
+        if (y_down >= -ARROW_STEP_Y
+            && y_down
+                <= bounds.size.h + ARROW_STEP_Y) {
             draw_chevron_down(
                 ctx,
                 arrow_center_x,
                 (int16_t)y_down,
                 arrow_half_width,
+                arrow_half_height,
                 arrow_color_for_index(i)
             );
         }
@@ -3005,17 +3433,20 @@ static void handle_touch_event(
 
     switch (event->type) {
     case TouchEvent_Touchdown:
+        cancel_ruler_fling();
         cancel_arrow_fill();
 
         // Keep the selector quiet during the entire drag gesture.
         stop_arrow_animation();
         s_touching = true;
         s_last_y = event->y;
+        s_recent_drag_velocity_q8 = 0;
 
         if (s_arrow_bounce_timer != NULL) {
             app_timer_cancel(s_arrow_bounce_timer);
             s_arrow_bounce_timer = NULL;
         }
+
         s_arrow_bounce_velocity = 0;
         break;
 
@@ -3023,61 +3454,30 @@ static void handle_touch_event(
         if (s_touching) {
             const int16_t delta_y =
                 event->y - s_last_y;
+
             s_last_y = event->y;
 
             if (delta_y == 0) {
                 break;
             }
 
-            s_drag_accumulator += delta_y;
-            s_arrow_drag_offset += delta_y;
+            // Weight the newest movement strongly while retaining enough
+            // history that a fast swipe is not lost to one tiny final event.
+            s_recent_drag_velocity_q8 =
+                (
+                    s_recent_drag_velocity_q8
+                    + (
+                        (int32_t)delta_y
+                        * RULER_FLING_Q8
+                        * 3
+                    )
+                )
+                / 4;
 
-            // The halfway point is the ridge between two minute
-            // valleys. Crossing it commits immediately and
-            // unambiguously to the neighbouring valley.
-            if (delta_y > 0) {
-                while (
-                    s_drag_accumulator
-                        >= MINUTE_DETENT_THRESHOLD_PX
-                ) {
-                    if (s_selected_minutes
-                        >= MAX_MINUTES) {
-                        s_drag_accumulator =
-                            MINUTE_DETENT_THRESHOLD_PX - 1;
-                        break;
-                    }
-
-                    s_drag_accumulator -=
-                        PIXELS_PER_MINUTE;
-
-                    set_minutes(
-                        s_selected_minutes + 1,
-                        true
-                    );
-                    start_ruler_roll(1);
-                }
-            } else {
-                while (
-                    s_drag_accumulator
-                        <= -MINUTE_DETENT_THRESHOLD_PX
-                ) {
-                    if (s_selected_minutes
-                        <= MIN_MINUTES) {
-                        s_drag_accumulator =
-                            -MINUTE_DETENT_THRESHOLD_PX + 1;
-                        break;
-                    }
-
-                    s_drag_accumulator +=
-                        PIXELS_PER_MINUTE;
-
-                    set_minutes(
-                        s_selected_minutes - 1,
-                        true
-                    );
-                    start_ruler_roll(-1);
-                }
-            }
+            apply_ruler_drag_delta(
+                delta_y,
+                true
+            );
 
             layer_mark_dirty(s_layer);
         }
@@ -3086,17 +3486,14 @@ static void handle_touch_event(
     case TouchEvent_Liftoff:
         s_touching = false;
 
-        // The ruler is already in one of the two neighbouring
-        // valleys. Discard only the invisible finger remainder.
+        // The invisible finger remainder should not be transferred into
+        // inertia. The estimated swipe velocity is retained separately.
         s_drag_accumulator = 0;
 
-        if (s_selected_minutes > 0) {
-            start_arrow_animation();
-        } else {
-            stop_arrow_animation();
+        if (!start_ruler_fling()) {
+            finish_selection_release();
         }
 
-        start_arrow_bounce();
         layer_mark_dirty(s_layer);
         break;
 
@@ -3155,6 +3552,10 @@ void touch_create(
     s_drag_accumulator = 0;
     s_ruler_roll_timer = NULL;
     s_ruler_roll_offset = 0;
+    s_ruler_fling_timer = NULL;
+    s_ruler_fling_velocity_q8 = 0;
+    s_ruler_fling_position_q8 = 0;
+    s_recent_drag_velocity_q8 = 0;
     s_ruler_entry_timer = NULL;
     s_ruler_entry_step = 0;
     s_ruler_entry_offset =
@@ -3211,6 +3612,7 @@ void touch_create(
 }
 
 void touch_destroy(void) {
+    cancel_ruler_fling();
     reset_ruler_entry_animation();
     cancel_ruler_roll();
     if (s_layer == NULL) {

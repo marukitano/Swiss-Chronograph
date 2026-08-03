@@ -30,7 +30,8 @@
       "ringColorRemaining",
       "alarmVibePattern",
       "audioVolume",
-      "showCentiseconds"
+      "showCentiseconds",
+      "rulerSide"
     ],
     "resources": {
       "media": [

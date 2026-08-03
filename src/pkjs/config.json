@@ -74,6 +74,23 @@
         ]
       },
       {
+        "type": "select",
+        "messageKey": "rulerSide",
+        "label": "Ruler and branding side",
+        "description": "Move the ruler, read line and Swiss branding to the left or right edge.",
+        "defaultValue": "0",
+        "options": [
+          {
+            "label": "Right",
+            "value": "0"
+          },
+          {
+            "label": "Left",
+            "value": "1"
+          }
+        ]
+      },
+      {
         "type": "toggle",
         "messageKey": "showCentiseconds",
         "label": "Hundredths of a second",

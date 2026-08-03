@@ -13,7 +13,7 @@
     and don't change the messageKeys or meaning of existing data.
     Note lowest allowed value is 1.
 */
-#define PERSIST_CONFIG_VERSION (4)
+#define PERSIST_CONFIG_VERSION (5)
 
 // Audible by default on speaker-capable Pebbles.
 #define DEFAULT_AUDIO_VOLUME (100)
@@ -32,6 +32,7 @@
     MACRO(ENUM,  AlarmVibePattern,    alarmVibePattern,             AlarmVibePattern_Double) \
     MACRO(INT,   uint8_t,             audioVolume,                  DEFAULT_AUDIO_VOLUME) \
     MACRO(BOOL,  bool,                showCentiseconds,             false) \
+    MACRO(ENUM,  RulerSide,           rulerSide,                    RulerSide_Right) \
 /* end of X_CONFIG_OPTIONS */
 
 // Overall display behaviour.
@@ -48,3 +49,9 @@ typedef enum AlarmVibePattern {
     AlarmVibePattern_Long = 2,
     AlarmVibePattern_None = 3,
 } AlarmVibePattern;
+
+// Ruler and branding placement.
+typedef enum RulerSide {
+    RulerSide_Right = 0,
+    RulerSide_Left = 1,
+} RulerSide;

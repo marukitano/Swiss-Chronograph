@@ -15,6 +15,7 @@
 #include "config.h"
 
 #include <pebble.h>
+#include <stddef.h>
 
 #include "macros.h"
 #include "persist_keys.h"
@@ -48,21 +49,23 @@ static void local_persist_load(void) {
             sizeof(s_config)
         );
     } else if (
-        stored_version == 3
+        stored_version == 4
+        || stored_version == 3
         || stored_version == 2
     ) {
-        // Versions 2 and 3 already use the current compact Config layout.
-        // Preserve every user setting. Only migrate defaults introduced by
-        // the two cleanup revisions:
-        // - version 2 accidentally defaulted to silent
-        // - version 3 accidentally defaulted to 50%
+        // Version 5 appends rulerSide to the packed Config structure.
+        // Read exactly the previous prefix so all existing preferences
+        // survive, then initialise only the newly appended field.
+        const int previous_config_size =
+            (int)offsetof(Config, rulerSide);
+
         status = persist_read_data(
             PERSIST_KEY_CONFIG,
             &s_config,
-            sizeof(s_config)
+            previous_config_size
         );
 
-        if (status == sizeof(s_config)) {
+        if (status == previous_config_size) {
             const bool migrate_version_2_default =
                 stored_version == 2
                 && s_config.audioVolume == 0;
@@ -79,7 +82,11 @@ static void local_persist_load(void) {
                     DEFAULT_AUDIO_VOLUME;
             }
 
+            s_config.rulerSide =
+                RulerSide_Right;
+
             local_persist_save();
+            status = (StatusCode)sizeof(s_config);
         }
     }
 
@@ -87,8 +94,6 @@ static void local_persist_load(void) {
         LOG("Loaded config from persistent storage");
     } else {
         // Version 1 used an incompatible, much larger structure.
-        // Keep the new compact defaults; notably, the alarm beep is now
-        // audible instead of silently defaulting to zero.
         LOG(
             "Using current config defaults "
             "(stored version %ld, status %d)",
