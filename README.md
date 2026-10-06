@@ -1,7 +1,7 @@
 # Swiss Chronograph
 
 <p align="center">
-  <img src="docs/store-preview.jpg" alt="Swiss Chronograph on Pebble Time 2" width="600">
+  <img src="docs/swiss_chronograph.png" alt="Swiss Chronograph on Pebble Time 2" width="600">
 </p>
 
 ## English
