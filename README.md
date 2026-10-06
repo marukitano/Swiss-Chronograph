@@ -1,5 +1,9 @@
 # Swiss Chronograph
 
+<p align="center">
+  <img src="docs/store-preview.jpg" alt="Swiss Chronograph on Pebble Time 2" width="600">
+</p>
+
 ## English
 
 ### One swipe. That’s it.
